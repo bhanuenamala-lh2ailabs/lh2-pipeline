@@ -32,6 +32,7 @@ COLUMNS = [
     "Status",
     "Notes",
     "Email",           # col 15 — primary founder email (SignalHire; sales verifies)
+    "Size Bucket",     # col 16 — 1-100 / 100-500 / 500-1000 (approx, from headcount)
 ]
 
 
@@ -156,6 +157,7 @@ def _row_for(co: Company, people: list[Person], idx: int, hyperlinked: bool, res
         co.status or "",
         _notes_cell(co, people),
         _email(primary),
+        co.size_bucket or "",
     ]
 
 

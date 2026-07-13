@@ -63,6 +63,7 @@ class Company(BaseModel):
     founded_source: Optional[str] = None
     size_band: Optional[str] = None
     size_source: Optional[str] = None    # provenance: raw size string
+    size_bucket: Optional[str] = None    # 1-100 / 100-500 / 500-1000 (approx, from headcount)
     segment: Optional[str] = None
     status: str = ""                     # Independent / Acquired(..) / blank
     sources_json: list[dict[str, str]] = Field(default_factory=list)  # [{source,url}]
@@ -128,6 +129,7 @@ CREATE TABLE IF NOT EXISTS companies (
     founded_source TEXT,
     size_band      TEXT,
     size_source    TEXT,
+    size_bucket    TEXT,
     segment        TEXT,
     status         TEXT,
     sources_json   TEXT,

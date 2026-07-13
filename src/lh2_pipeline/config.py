@@ -52,6 +52,12 @@ class CrawlConfig(BaseModel):
 class GatesConfig(BaseModel):
     hq_country: str = "India"
     founded_max_year: int = 2022
+    # Size gate by representative headcount (midpoint of the scraped range),
+    # assigned to buckets 1-100 / 100-500 / 500-1000. Admit target buckets within
+    # [min, max]. (size_bands_* are legacy/unused by the gate; kept for compat.)
+    size_buckets: list[str] = Field(default_factory=lambda: ["1-100", "100-500", "500-1000"])
+    size_min_headcount: int = 10          # exclude sub-10 freelancers (set 1 to include)
+    size_max_headcount: int = 1000        # matches the top bucket edge
     size_bands_include: list[str] = Field(default_factory=lambda: ["10-49", "50-249"])
     size_bands_exclude: list[str] = Field(default_factory=lambda: ["<10", "250+"])
     blocklist_outsourcers: list[str] = Field(default_factory=list)

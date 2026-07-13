@@ -131,20 +131,25 @@ def apply_gates(
     elif co.founded_year > gates.founded_max_year:
         reasons.append(f"founded {co.founded_year} > {gates.founded_max_year}")
 
-    # 5. Size band in include set.
-    if co.size_band is None:
-        reasons.append("size band unknown")
-    elif co.size_band in (gates.size_bands_exclude or []):
-        reasons.append(f"size {co.size_band} excluded")
-    elif co.size_band not in (gates.size_bands_include or []):
-        reasons.append(f"size {co.size_band} not in target bands")
-    else:
-        # near-ceiling flag: only when a *precise* headcount (single number) is
-        # close to 250 — not when size_source is just the band range "50-249".
-        if co.size_band == "50-249" and co.size_source:
-            nums = [int(x) for x in re.findall(r"\d+", co.size_source.replace(",", ""))]
-            if len(nums) == 1 and 200 <= nums[0] <= 249:
-                notes.append("near-250 headcount ceiling")
+    # 5. Size (headcount bucket). Directories report coarse ranges, so we use the
+    # midpoint as the representative headcount and assign a bucket
+    # (1-100 / 100-500 / 500-1000). Admit target buckets within [min, max];
+    # reject too-small / too-large / unknown. Always sets co.size_bucket.
+    from .canonicalize import size_bucket as _size_bucket, size_headcount as _headcount
+
+    h = _headcount(co.size_source, co.size_band)
+    co.size_bucket = _size_bucket(co.size_source, co.size_band)
+    target_buckets = list(gates.size_buckets or [])
+    if h is None:
+        reasons.append("size unknown")
+    elif h < gates.size_min_headcount:
+        reasons.append(f"size ~{h} below floor {gates.size_min_headcount}")
+    elif co.size_bucket is None:
+        reasons.append(f"size ~{h} above ceiling {gates.size_max_headcount}")
+    elif co.size_bucket not in target_buckets:
+        reasons.append(f"size bucket {co.size_bucket} not targeted")
+    elif h >= gates.size_max_headcount * 0.9:
+        notes.append(f"near {gates.size_max_headcount} headcount ceiling")
 
     passed = len(reasons) == 0
     co.gate_pass = passed

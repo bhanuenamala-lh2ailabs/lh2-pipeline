@@ -68,6 +68,14 @@ crawl:
 gates:
   hq_country: India
   founded_max_year: 2022
+
+  # Size gate by representative headcount (directories give coarse ranges, so we
+  # take the range MIDPOINT). Firms are bucketed 1-100 / 100-500 / 500-1000 and
+  # admitted if their bucket is targeted and headcount is within [min, max].
+  size_buckets: ["1-100", "100-500", "500-1000"]   # widened to ≤1000 (2026-07-13)
+  size_min_headcount: 10                            # sub-10 freelancers excluded (set 1 to include)
+  size_max_headcount: 1000                          # matches the top bucket edge
+  # Legacy band lists — no longer used by the size gate (kept for reference).
   size_bands_include: ["10-49", "50-249"]
   size_bands_exclude: ["<10", "250+"]
 

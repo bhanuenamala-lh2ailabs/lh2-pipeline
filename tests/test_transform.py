@@ -8,6 +8,8 @@ from lh2_pipeline.transform.canonicalize import (
     canonical_domain,
     normalize_founded,
     normalize_size,
+    size_bucket,
+    size_headcount,
 )
 from lh2_pipeline.transform.dedupe import dedupe
 from lh2_pipeline.transform.gates import apply_gates
@@ -40,6 +42,26 @@ def test_normalize_size():
     assert normalize_size("1,000+") == "250+"
     assert normalize_size("Freelancer (1)") == "<10"
     assert normalize_size(None) is None
+
+
+def test_size_headcount_midpoint():
+    assert size_headcount("50 - 249") == 149      # midpoint of the range
+    assert size_headcount("250 - 999") == 624
+    assert size_headcount("10 - 49") == 29
+    assert size_headcount("300") == 300           # single number
+    assert size_headcount("10000+") == 10000
+    assert size_headcount(None, "50-249") == 150  # band-midpoint fallback
+    assert size_headcount(None, None) is None
+
+
+def test_size_bucket_assignment():
+    assert size_bucket("2 - 9") == "1-100"
+    assert size_bucket("10 - 49") == "1-100"
+    assert size_bucket("50 - 249") == "100-500"   # midpoint 149
+    assert size_bucket("250 - 999") == "500-1000" # midpoint 624
+    assert size_bucket("1,000 - 9,999") is None   # > 1000 -> out of range
+    assert size_bucket("10000+") is None
+    assert size_bucket(None, None) is None
 
 
 # --- dedupe ---------------------------------------------------------------- #
@@ -92,12 +114,22 @@ def test_gate_passes_qualifying_firm():
     assert co.gate_pass is True
 
 
-def test_gate_excludes_300_employee_firm():
-    co = Company(domain="big.com", company_name="Big Co", founded_year=2010,
+def test_gate_admits_300_employee_firm_now():
+    # widened gate: 300 employees -> bucket 100-500 -> admitted (<=1000)
+    co = Company(domain="mid.com", company_name="Mid Co", founded_year=2010,
                  size_band="250+", size_source="300")
     out = apply_gates(co, _gates())
+    assert out.passed is True
+    assert co.size_bucket == "100-500"
+
+
+def test_gate_excludes_over_1000_firm():
+    co = Company(domain="big.com", company_name="Big Co", founded_year=2010,
+                 size_band="250+", size_source="1000 - 9999")
+    out = apply_gates(co, _gates())
     assert out.passed is False
-    assert any("250+" in r for r in out.reasons)
+    assert co.size_bucket is None
+    assert any("above ceiling" in r for r in out.reasons)
 
 
 def test_gate_excludes_outsourcer_and_too_new_and_known():
@@ -139,21 +171,23 @@ def test_gate_unknown_fields_fail_closed():
     out = apply_gates(co, _gates())
     assert out.passed is False
     assert "founded year unknown" in out.reasons
-    assert "size band unknown" in out.reasons
+    assert "size unknown" in out.reasons
 
 
 def test_gate_near_ceiling_note():
+    # headcount within 10% of the 1000 ceiling -> flagged
     co = Company(domain="edge.com", company_name="Edge", founded_year=2018,
-                 size_band="50-249", size_source="240")
+                 size_band="250+", size_source="900 - 999")
     out = apply_gates(co, _gates())
     assert out.passed is True
-    assert any("near-250" in n for n in out.notes)
+    assert co.size_bucket == "500-1000"
+    assert any("near 1000" in n for n in out.notes)
 
 
-def test_gate_band_label_does_not_trigger_near_ceiling():
-    # size_source is just the band range, not a precise count -> no false flag
+def test_gate_mid_range_does_not_trigger_near_ceiling():
     co = Company(domain="band.com", company_name="Band Co", founded_year=2018,
-                 size_band="50-249", size_source="50-249")
+                 size_band="50-249", size_source="50 - 249")
     out = apply_gates(co, _gates())
     assert out.passed is True
-    assert not any("near-250" in n for n in out.notes)
+    assert co.size_bucket == "100-500"          # midpoint 149
+    assert not any("near" in n for n in out.notes)

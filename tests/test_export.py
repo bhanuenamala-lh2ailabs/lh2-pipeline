@@ -43,15 +43,16 @@ def _seed(tmp_path):
     return s
 
 
-def test_schema_first_14_columns_in_order_then_email(tmp_path):
-    # Original 14 columns keep their exact positions; Email is appended (col 15).
-    assert len(COLUMNS) == 15
+def test_schema_first_14_columns_in_order_then_appends(tmp_path):
+    # Original 14 columns keep their exact positions; Email + Size Bucket appended.
+    assert len(COLUMNS) == 16
     assert COLUMNS[0] == "#" and COLUMNS[1] == "Company"
     assert COLUMNS[3] == "Founder LinkedIn (verified)"
     assert COLUMNS[4] == "Contact Number" and COLUMNS[6] == "Contact Number"
     assert COLUMNS[5] == "SPOC 2 Linkedin"
     assert COLUMNS[13] == "Notes"          # last of the original 14 — position unchanged
     assert COLUMNS[14] == "Email"          # appended
+    assert COLUMNS[15] == "Size Bucket"    # appended
 
 
 def test_plain_csv_content_and_rules(tmp_path):

@@ -58,6 +58,7 @@ class Store:
         migrations = [
             ("people", "email", "TEXT"),
             ("people", "email_source", "TEXT"),
+            ("companies", "size_bucket", "TEXT"),
         ]
         for table, col, coltype in migrations:
             try:
@@ -136,9 +137,9 @@ class Store:
                 """
                 INSERT INTO companies
                   (domain, company_name, website, city, state, hq_country,
-                   founded_year, founded_source, size_band, size_source, segment,
-                   status, sources_json, gate_pass, gate_reason, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   founded_year, founded_source, size_band, size_source, size_bucket,
+                   segment, status, sources_json, gate_pass, gate_reason, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(domain) DO UPDATE SET
                    company_name=excluded.company_name,
                    website=excluded.website,
@@ -149,6 +150,7 @@ class Store:
                    founded_source=excluded.founded_source,
                    size_band=excluded.size_band,
                    size_source=excluded.size_source,
+                   size_bucket=excluded.size_bucket,
                    segment=excluded.segment,
                    status=excluded.status,
                    sources_json=excluded.sources_json,
@@ -167,6 +169,7 @@ class Store:
                     co.founded_source,
                     co.size_band,
                     co.size_source,
+                    co.size_bucket,
                     co.segment,
                     co.status,
                     _json(co.sources_json),
@@ -207,6 +210,7 @@ class Store:
             founded_source=r["founded_source"],
             size_band=r["size_band"],
             size_source=r["size_source"],
+            size_bucket=r["size_bucket"] if "size_bucket" in r.keys() else None,
             segment=r["segment"],
             status=r["status"] or "",
             sources_json=json.loads(r["sources_json"]) if r["sources_json"] else [],

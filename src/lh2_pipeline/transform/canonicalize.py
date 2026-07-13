@@ -129,3 +129,48 @@ def normalize_size(raw: Optional[str]) -> Optional[str]:
     if low < 250:
         return BAND_50_249
     return BAND_250_PLUS
+
+
+# --------------------------------------------------------------------------- #
+# Headcount + size buckets (1-100 / 100-500 / 500-1000)
+# --------------------------------------------------------------------------- #
+# Directories report coarse *ranges* ("50 - 249", "250 - 999"), not exact counts.
+# We take the range MIDPOINT as the representative headcount, so buckets are
+# approximate by construction. Band midpoints are the fallback when only the
+# normalized band is known.
+_BAND_MIDPOINT = {"<10": 5, "10-49": 30, "50-249": 150, "250+": 600}
+
+
+def size_headcount(size_source: Optional[str], size_band: Optional[str] = None) -> Optional[int]:
+    """Representative headcount for a firm: the midpoint of the scraped range
+    (``size_source``), else the ``size_band`` midpoint, else None.
+
+    "50 - 249" -> 149; "250 - 999" -> 624; "10000+" -> 10000; "300" -> 300.
+    """
+    s = (size_source or "").replace(",", "")
+    nums = [int(x) for x in re.findall(r"\d+", s)]
+    if len(nums) >= 2:
+        return (nums[0] + nums[1]) // 2          # midpoint of "A - B"
+    if len(nums) == 1:
+        return nums[0]                            # single number ("300", "10000+")
+    return _BAND_MIDPOINT.get(size_band)
+
+
+# Ordered bucket edges: (label, inclusive_upper). Above the last edge -> None.
+SIZE_BUCKETS: tuple[tuple[str, int], ...] = (
+    ("1-100", 100),
+    ("100-500", 500),
+    ("500-1000", 1000),
+)
+
+
+def size_bucket(size_source: Optional[str], size_band: Optional[str] = None) -> Optional[str]:
+    """Assign a firm to 1-100 / 100-500 / 500-1000 by representative headcount.
+    Returns None when size is unknown or above the top bucket (>1000)."""
+    h = size_headcount(size_source, size_band)
+    if h is None:
+        return None
+    for label, upper in SIZE_BUCKETS:
+        if h <= upper:
+            return label
+    return None                                   # > 1000 -> out of range

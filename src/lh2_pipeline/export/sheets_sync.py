@@ -47,14 +47,14 @@ SCOPES = [
 QUALIFIED_COLUMNS = [
     "#", "Company", "Founder(s)", "Founder LinkedIn (verified)", "Email",
     "Contact Number", "SPOC 2 Linkedin", "Contact Number 2", "Incorp. Year",
-    "HQ / India delivery", "Approx. Headcount", "Headcount source (approx.)",
-    "Segment", "Status", "Notes", "Synced At",
+    "HQ / India delivery", "Approx. Headcount", "Size Bucket",
+    "Headcount source (approx.)", "Segment", "Status", "Notes", "Synced At",
 ]
 
 REVIEW_COLUMNS = [
     "Company", "Domain", "Founder(s)", "Founder LinkedIn (verified)", "Email",
-    "Contact Number", "Incorp. Year", "HQ / India delivery", "Segment",
-    "Missing Field(s)", "Notes",
+    "Contact Number", "Incorp. Year", "HQ / India delivery", "Size Bucket",
+    "Segment", "Missing Field(s)", "Notes",
 ]
 
 STATS_COLUMNS = [
@@ -247,6 +247,7 @@ class SheetsSyncer:
                 co.founded_year or "",
                 co.hq_country or "",
                 co.size_band or "",
+                co.size_bucket or "",
                 _headcount_source(co),
                 co.segment or "",
                 co.status or "",
@@ -283,6 +284,7 @@ class SheetsSyncer:
                 _sheet_phone(primary),
                 co.founded_year or "",
                 co.hq_country or "",
+                co.size_bucket or "",
                 co.segment or "",
                 ", ".join(missing),
                 _notes_cell(co, people),
