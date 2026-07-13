@@ -44,6 +44,20 @@ jobs:
       - name: Create data directories
         run: mkdir -p data/exports data/raw_html
 
+      - name: Bootstrap DB if missing
+        # First dispatch (or expired cache): no DB yet -> seed it with crawl + build.
+        # Subsequent runs restore the DB from cache and skip straight to enrich.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ ! -f data/pipeline.sqlite ]; then
+            echo "No cached DB found — bootstrapping with crawl + build"
+            lh2 crawl
+            lh2 build
+          else
+            echo "DB restored from cache — skipping bootstrap"
+          fi
+
       - name: Run enrichment + scoring
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
