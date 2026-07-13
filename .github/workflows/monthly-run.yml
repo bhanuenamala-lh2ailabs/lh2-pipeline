@@ -1,0 +1,32 @@
+# Monthly incremental re-run (BUILD SPEC §8 "Scheduling, optional").
+# BUILT BUT DISABLED: the schedule trigger is commented out. Enable by
+# uncommenting `schedule:` once the operator is ready and secrets are set.
+name: lh2-monthly
+
+on:
+  workflow_dispatch: {}          # manual run only, for now
+  # schedule:
+  #   - cron: "0 3 1 * *"        # 03:00 UTC on the 1st of each month — ENABLE WHEN READY
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -e ".[all]"
+          python -m playwright install --with-deps chromium
+      - name: Run pipeline (incremental)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SIGNALHIRE_API_KEY: ${{ secrets.SIGNALHIRE_API_KEY }}
+        run: |
+          lh2 run --since "$(date -d '1 month ago' +%Y-%m-%d)" --max-enrich 500
+      - uses: actions/upload-artifact@v4
+        with:
+          name: targets-export
+          path: data/exports/

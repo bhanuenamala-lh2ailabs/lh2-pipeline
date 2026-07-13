@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lh2-pipeline"
+version = "0.1.0"
+description = "LH2 Indian IT-services sourcing pipeline — crawl, dedupe, enrich, score, export."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "LH2" }]
+
+# Core deps are pure-python / reliable wheels so `pip install -e .` always succeeds.
+# Heavier, optional-at-runtime deps live in extras below and are imported lazily.
+dependencies = [
+    "typer>=0.12",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "pydantic>=2.6",
+    "tldextract>=5.1",
+    "rapidfuzz>=3.6",
+    "httpx>=0.27",
+    "tenacity>=8.2",
+    "structlog>=24.1",
+    "beautifulsoup4>=4.12",   # pure-python HTML parsing; keeps parsers + tests installable by default
+]
+
+[project.optional-dependencies]
+# Directory crawling (Cloudflare-class sites) — heavy; install when running crawlers.
+crawl = [
+    "playwright>=1.44",
+    "selectolax>=0.3.21",     # optional faster parser; bs4 is the default fallback
+]
+# LLM extraction/judgment glue.
+enrich = [
+    "anthropic>=0.40",
+]
+# Optional XLSX export in LH2 house style.
+xlsx = [
+    "openpyxl>=3.1",
+]
+# Google Sheets auto-sync (service-account auth).
+sheets = [
+    "gspread>=6.0",
+    "google-auth>=2.0",
+]
+dev = [
+    "pytest>=8.0",
+]
+# Everything, for a full local install.
+all = [
+    "lh2-pipeline[crawl,enrich,xlsx,sheets,dev]",
+]
+
+[project.scripts]
+lh2 = "lh2_pipeline.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

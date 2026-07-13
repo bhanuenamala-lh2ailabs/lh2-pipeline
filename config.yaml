@@ -1,0 +1,225 @@
+# ============================================================================
+# LH2 Indian IT-Services Sourcing Pipeline — configuration
+# All tunables live here. Code reads this via src/lh2_pipeline/config.py.
+# ============================================================================
+
+run:
+  data_dir: data
+  db_path: data/pipeline.sqlite        # SQLite store (see README for the DuckDB note)
+  raw_html_dir: data/raw_html          # gzipped cached pages, keyed by url hash
+  exports_dir: data/exports            # generated CSV/XLSX
+
+# ---------------------------------------------------------------------------
+# Crawling
+# ---------------------------------------------------------------------------
+crawl:
+  # Polite-by-default. 1 concurrent request per host, randomized delay.
+  workers_per_host: 1
+  delay_min_seconds: 2.0
+  delay_max_seconds: 5.0
+  max_pages_per_city: 12               # deeper crawl to grow the universe for the 400-firm batch
+  request_timeout_seconds: 45
+  retry_attempts: 3
+  honor_robots: false   # operator ToS decision (2026-06-30): crawl directory paths; keep rates polite
+
+  # Rotating, identifiable user agents.
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 LH2Bot/0.1 (+contact: data@lh2.ai)"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36 LH2Bot/0.1 (+contact: data@lh2.ai)"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 LH2Bot/0.1 (+contact: data@lh2.ai)"
+
+  # Source toggles. Built/enabled in priority order (highest structured yield first).
+  sources:
+    goodfirms: true        # verified live 2026-06 (name+website+founded+size on listing)
+    clutch: false          # crawler built; URL/selectors not yet live-verified
+    techbehemoths: false   # listing selectors fixed+verified 2026-07-13, BUT listing lacks
+                           #   website(mostly)/founded/size -> needs a profile-page fetch to
+                           #   produce gate-passing firms; left OFF until that's built
+    manifest: false
+    designrush: false
+    nasscom: false
+
+  # Drive pagination from this list. Extend freely.
+  cities:
+    - Bengaluru
+    - Pune
+    - Hyderabad
+    - Ahmedabad
+    - Indore
+    - Jaipur
+    - Noida
+    - Gurugram
+    - Delhi
+    - Chennai
+    - Coimbatore
+    - Kochi
+    - Mumbai
+    - Kolkata
+    - Mohali
+    - Surat
+    - Vadodara
+    - Nagpur
+    - Bhopal
+    - Trivandrum
+
+# ---------------------------------------------------------------------------
+# Gate filtering (Phase 2)
+# ---------------------------------------------------------------------------
+gates:
+  hq_country: India
+  founded_max_year: 2022
+  size_bands_include: ["10-49", "50-249"]
+  size_bands_exclude: ["<10", "250+"]
+
+  # Large outsourcers — never targets.
+  blocklist_outsourcers:
+    - TCS
+    - Tata Consultancy Services
+    - Infosys
+    - Wipro
+    - HCL
+    - HCLTech
+    - Tech Mahindra
+    - LTIMindtree
+    - Mphasis
+    - Persistent
+    - Coforge
+    - Cognizant
+    - Capgemini
+    - Accenture
+    - Mindtree
+    - Hexaware
+    - Zensar
+    - Cyient
+    - Birlasoft
+    - L&T Technology Services
+
+  # Already-known LH2 firms so output is net-new.
+  # Option A: canonical domains, one per line, e.g. "promatics.com".
+  blocklist_known_domains: []
+  # Option B: extra names to exclude (fuzzy-matched on company name).
+  blocklist_known_names: []
+  # Option C: a CSV whose "Company" column lists already-known firms.
+  blocklist_known_file: "Indian IT Services - IT Services Firms (2).csv"
+
+  # Net-new gate: every firm mined/delivered in a previous run is excluded here
+  # by BOTH name and canonical domain, so re-runs never re-emit them.
+  # IMPORTANT: list only STABLE, curated sources here — never the live export
+  # outputs (data/exports/targets_hyperlinked.csv etc.), which are regenerated
+  # every `lh2 export` and would become self-referential (excluding everything).
+  # The canonical "already delivered" ledger is data/delivered_domains.txt.
+  # name_files: company names + any embedded domains (=HYPERLINK / Domain column).
+  exclude_name_files:
+    - "AI Labs to do - filled.csv"     # deadpooled-AI-startups vertical (separate list)
+  # domain_files: one canonical domain per line (the delivered ledger).
+  exclude_domain_files:
+    - "data/delivered_domains.txt"      # 99 firms already delivered (append_ready batch)
+
+# ---------------------------------------------------------------------------
+# Enrichment (Phase 3)
+# ---------------------------------------------------------------------------
+enrich:
+  max_enrich: 1000                     # hard cap; protects Signalhire credits
+
+  signalhire:
+    enabled: true
+    # Endpoints/params are resolved against the official Signalhire API docs at
+    # build time — do not hardcode guessed routes here.
+    e164_default_region: IN
+
+  registry:
+    enabled: false                     # ZaubaCorp URL/structure not yet live-verified; enable after wiring
+    provider: zaubacorp                # MCA / ZaubaCorp director lookup via Playwright
+
+  company_site:
+    enabled: false                     # OFF for the fully-filled batch: Signalhire-only is ~10x faster
+                                       # and gives founder+LinkedIn+phone together (company-site rarely adds phones)
+
+  linkedin_optional:
+    enabled: false                     # OFF by default — the only paid LinkedIn component
+    provider: proxycurl                # proxycurl | coresignal
+
+# ---------------------------------------------------------------------------
+# Provider governance — rate limits + durable quota ("never hit the limit")
+# Rate keys (per_second/minute/hour) pace requests; quota keys (search_per_day,
+# monthly_credits) are tracked in the persistent `quota` table and survive
+# restarts. Everything runs at `safety_margin` of the stated ceiling.
+# NOTE: the numeric limits below are conservative placeholders — confirm each
+# against the provider's live docs before enabling that provider.
+# ---------------------------------------------------------------------------
+providers:
+  defaults:
+    safety_margin: 0.8
+    max_retries: 4
+    backoff_base_seconds: 2.0
+    honor_retry_after: true
+
+  # Enrichment cascade order (first tried first; spillover downward once >1 live).
+  cascade:
+    phone:    [signalhire]
+    email:    [signalhire]
+    linkedin: [signalhire]
+    name:     [signalhire]
+
+  # The only enrichment provider live this phase. search_per_day is the real
+  # bottleneck (SignalHire returns 402 when the daily search quota is exhausted).
+  signalhire:
+    enabled: true
+    limits:
+      requests_per_minute: 60
+      search_per_day: 5000
+      person_items_per_minute: 600
+    reset: daily_utc
+
+  # Deferred — flip enabled:true when the key lands (limits are placeholders).
+  easyleadz:
+    enabled: false
+    limits: { requests_per_minute: 60, requests_per_day: 1000 }
+    reset: daily_utc
+  fullenrich:
+    enabled: false
+    limits: { requests_per_minute: 30, requests_per_day: 2000 }
+    reset: daily_utc
+  apollo:
+    enabled: false
+    limits: { requests_per_minute: 50, requests_per_hour: 200, monthly_credits: 10000 }
+    reset: monthly
+  google_places:
+    enabled: false
+    limits: { requests_per_minute: 600, free_calls_per_month: 5000 }
+    reset: monthly
+
+# ---------------------------------------------------------------------------
+# LLM judgment (Phase 3/4) — Claude
+# ---------------------------------------------------------------------------
+judge:
+  model_extract: claude-haiku-4-5-20251001   # extraction is cheap work → Haiku
+  model_match: claude-haiku-4-5-20251001     # namesake match → Haiku
+  max_tokens: 1024
+  fuzzy_threshold: 88                  # rapidfuzz score for "names agree"
+
+# ---------------------------------------------------------------------------
+# Export (Phase 5)
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Google Sheets auto-sync (Phase 5b) — push the deliverable straight to a Sheet.
+# credentials_file is a service-account JSON (secret; gitignored). Share the
+# spreadsheet with the service-account email as Editor, then paste its key below.
+# ---------------------------------------------------------------------------
+sheets:
+  enabled: true
+  credentials_file: "google_service_account.json"
+  spreadsheet_key: ""            # keep EMPTY in git — real key comes from the GOOGLE_SHEETS_KEY
+                                 # env var (.env locally / GitHub secret in CI)
+  qualified_tab: "Qualified Leads"   # 4/4 leads — append-only, never cleared
+  review_tab: "Under Review"         # 3/4 leads — overwritten each run (re-try queue)
+  stats_tab: "Pipeline Stats"        # one metrics row appended per run
+
+export:
+  schema_version: 1
+  google_search_resolver: "https://www.google.com/search?q={query}"
+  xlsx_house_style:
+    header_fill: "1F3864"
+    band_fill: "EAF0F8"
+    font: "Arial"
+    font_size: 10

@@ -1,0 +1,79 @@
+name: Nightly Enrich + Sync
+
+on:
+  schedule:
+    - cron: "30 18 * * *"   # 18:30 UTC = 00:00 IST
+  workflow_dispatch: {}      # manual "Run workflow" button
+
+jobs:
+  enrich-and-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('**/pyproject.toml', '**/requirements*.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[all]"
+          python -m playwright install chromium
+
+      - name: Restore pipeline database
+        # Carries the SQLite DB (companies + cache + quota ledger) between runs so
+        # enrichment is incremental and never re-bills cached work. NOTE: the DB is
+        # gitignored, so the very first run starts empty — seed it by running
+        # `lh2 crawl && lh2 build` once (locally or via a bootstrap dispatch).
+        uses: actions/cache@v4
+        with:
+          path: data/pipeline.sqlite
+          key: pipeline-db-${{ github.run_id }}
+          restore-keys: pipeline-db-
+
+      - name: Create data directories
+        run: mkdir -p data/exports data/raw_html
+
+      - name: Run enrichment + scoring
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SIGNALHIRE_API_KEY: ${{ secrets.SIGNALHIRE_API_KEY }}
+        run: |
+          lh2 enrich --max-enrich 100
+          lh2 score
+
+      - name: Sync to Google Sheets
+        # sheets_sync reads these env vars directly (creds from the JSON string,
+        # key from GOOGLE_SHEETS_KEY) — no file needed on the runner.
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEETS_KEY: ${{ secrets.GOOGLE_SHEETS_KEY }}
+        run: lh2 sync
+
+      - name: Save pipeline database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/pipeline.sqlite
+          key: pipeline-db-${{ github.run_id }}
+
+      - name: Export CSV backup
+        run: lh2 export --hyperlinked
+
+      - name: Upload export artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-export-${{ github.run_id }}
+          path: data/exports/
+          retention-days: 30

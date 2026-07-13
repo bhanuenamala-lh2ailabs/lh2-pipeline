@@ -1,0 +1,68 @@
+# =====================================================================
+# Secrets / credentials — NEVER commit
+# =====================================================================
+.env
+.env.local
+google_service_account.json
+*service_account*.json
+lh2-pipeline-*.json
+credentials*.json
+*.json.bak
+
+# =====================================================================
+# Data, cache, exports — large / regenerable / contains PII
+# The whole data/ tree is ignored (DB, cached HTML, exports, ailabs
+# research, delivered ledger). Recreated at runtime / restored from cache.
+# =====================================================================
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+# (explicit — kept even if data/ is ever un-ignored)
+data/pipeline.sqlite
+data/raw_html/
+data/exports/
+data/ailabs/
+data/delivered_domains.txt
+
+# =====================================================================
+# PII input lists — founder names / phones / emails / LinkedIn.
+# Provided out-of-band, never committed. (Force-add a non-PII sample
+# with `git add -f <file>` if one is ever needed.)
+# =====================================================================
+*.csv
+*.xlsx
+
+# =====================================================================
+# Python / dev artifacts
+# =====================================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# =====================================================================
+# Playwright / browser
+# =====================================================================
+.playwright/
+
+# =====================================================================
+# OS junk
+# =====================================================================
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Local notes containing a GitHub token — NEVER commit
+git.md
