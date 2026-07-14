@@ -180,6 +180,19 @@ CREATE TABLE IF NOT EXISTS quota (
     PRIMARY KEY (provider, metric, window_key)
 );
 
+-- CRM call-feedback pulled back from HubSpot (the feedback loop): what callers
+-- recorded after contacting a founder, keyed to the company domain.
+CREATE TABLE IF NOT EXISTS crm_feedback (
+    email        TEXT PRIMARY KEY,
+    domain       TEXT,
+    call_outcome TEXT,
+    call_notes   TEXT,
+    call_date    TEXT,
+    next_step    TEXT,
+    pulled_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_feedback_domain ON crm_feedback(domain);
+
 -- Tracks the no-website bucket for human review (Phase 2 canonicalize).
 CREATE TABLE IF NOT EXISTS no_domain (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

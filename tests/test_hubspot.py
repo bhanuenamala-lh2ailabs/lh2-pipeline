@@ -5,6 +5,7 @@ selection, upsert idProperty keys, name splitting, and associations."""
 from __future__ import annotations
 
 from lh2_pipeline.export.hubspot import (
+    CALL_FEEDBACK_PROPERTIES,
     COMPANY_PROPERTIES,
     CONTACT_PROPERTIES,
     HubspotClient,
@@ -12,6 +13,8 @@ from lh2_pipeline.export.hubspot import (
     run_hubspot_setup,
     run_hubspot_sync,
 )
+
+_N_CONTACT_PROPS = len(CONTACT_PROPERTIES) + len(CALL_FEEDBACK_PROPERTIES)
 from lh2_pipeline.models import Company, Person
 from lh2_pipeline.store import Store
 
@@ -48,7 +51,7 @@ def test_setup_creates_all_when_absent():
 
     r = run_hubspot_setup(FakeCfg(), client=HubspotClient(responder=responder))
     assert len(r["company_props"]) == len(COMPANY_PROPERTIES)
-    assert len(r["contact_props"]) == len(CONTACT_PROPERTIES)
+    assert len(r["contact_props"]) == _N_CONTACT_PROPS
     assert r["pipeline"] == "Codebase Acquisition"
     assert "PIPELINE" in posts
     assert "size_bucket" in posts and "spoc_type" in posts
@@ -67,7 +70,7 @@ def test_setup_is_idempotent_when_present():
     r = run_hubspot_setup(FakeCfg(), client=HubspotClient(responder=responder))
     assert r["company_props"] == [] and r["contact_props"] == []
     assert r["pipeline"] is None
-    assert len(r["skipped"]) == len(COMPANY_PROPERTIES) + len(CONTACT_PROPERTIES) + 1
+    assert len(r["skipped"]) == len(COMPANY_PROPERTIES) + _N_CONTACT_PROPS + 1
 
 
 # --------------------------------------------------------------------------- #
@@ -142,6 +145,33 @@ def test_sync_dry_run_pushes_nothing(tmp_path):
     stats = run_hubspot_sync(FakeCfg(), store, client=HubspotClient(responder=responder),
                              dry_run=True)
     assert stats["companies"] == 1 and stats["dry_run"] is True
+    store.close()
+
+
+def test_pull_stores_only_touched_feedback(tmp_path):
+    from lh2_pipeline.export.hubspot import run_hubspot_pull
+    store = Store(tmp_path / "hp.sqlite"); store.init_db()
+    _seed(store)  # acme.com founder = asha@acme.com ; bar.com founder = (no email)
+
+    def responder(method, path, json):
+        if path.endswith("/contacts/search"):
+            return 200, {"results": [
+                {"id": "1", "properties": {"email": "asha@acme.com", "call_outcome": "Interested",
+                                           "call_notes": "keen, follow up next week", "call_date": "2026-07-15"}},
+                {"id": "2", "properties": {"email": "someone@other.com", "call_outcome": "Not Called"}},
+            ]}
+        raise AssertionError(f"unexpected {method} {path}")
+
+    stats = run_hubspot_pull(FakeCfg(), store, client=HubspotClient(responder=responder))
+    assert stats["contacts_scanned"] == 2
+    assert stats["feedback_pulled"] == 1                 # the "Not Called" row is ignored
+    assert stats["outcomes"] == {"Interested": 1}
+
+    row = store._conn.execute(
+        "SELECT domain, call_outcome, call_notes FROM crm_feedback WHERE email='asha@acme.com'").fetchone()
+    assert row["domain"] == "acme.com"                   # keyed back to the company
+    assert row["call_outcome"] == "Interested"
+    assert "follow up" in row["call_notes"]
     store.close()
 
 

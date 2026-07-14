@@ -339,6 +339,31 @@ def hubspot_sync(
         store.close()
 
 
+@app.command("hubspot-pull")
+def hubspot_pull(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report what would be pulled; store nothing."),
+) -> None:
+    """Phase 5c — pull caller call-feedback (outcome/notes) from HubSpot into the pipeline."""
+    cfg = _cfg(ctx)
+    if not cfg.secrets.hubspot_api_key:
+        typer.echo("HUBSPOT_API_KEY not set in .env"); raise typer.Exit(code=2)
+    store = open_store(cfg)
+    try:
+        from .export.hubspot import run_hubspot_pull
+
+        s = run_hubspot_pull(cfg, store, dry_run=dry_run)
+        prefix = "[dry-run] would pull" if dry_run else "✓ pulled"
+        typer.echo(f"hubspot-pull: {prefix} feedback for {s['feedback_pulled']} firms "
+                   f"(scanned {s['contacts_scanned']} contacts)")
+        if s["outcomes"]:
+            typer.echo(f"        outcomes: {s['outcomes']}")
+    except Exception as e:  # noqa: BLE001
+        typer.echo(f"hubspot-pull failed: {e}"); raise typer.Exit(code=1)
+    finally:
+        store.close()
+
+
 @app.command()
 def run(
     ctx: typer.Context,

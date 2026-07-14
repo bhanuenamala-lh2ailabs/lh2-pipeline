@@ -54,6 +54,20 @@ CONTACT_PROPERTIES = [
     {"name": "spoc_type", "label": "SPOC Type", "type": "enumeration", "fieldType": "select",
      "options": _enum(["Primary", "Secondary"])},
 ]
+
+# Caller fills these after each call → `lh2 hubspot-pull` reads them back into the
+# pipeline so real outcomes can refine targeting/scoring (the feedback loop).
+CALL_OUTCOMES = [
+    "Not Called", "Connected", "No Answer", "Left Voicemail", "Interested",
+    "Not Interested", "Callback Requested", "Wrong Contact", "Do Not Contact",
+]
+CALL_FEEDBACK_PROPERTIES = [
+    {"name": "call_outcome", "label": "Call Outcome", "type": "enumeration",
+     "fieldType": "select", "options": _enum(CALL_OUTCOMES)},
+    {"name": "call_notes", "label": "Call Notes", "type": "string", "fieldType": "textarea"},
+    {"name": "call_date", "label": "Call Date", "type": "date", "fieldType": "date"},
+    {"name": "next_step", "label": "Next Step", "type": "string", "fieldType": "text"},
+]
 COMPANY_GROUP = "companyinformation"      # standard HubSpot property group
 CONTACT_GROUP = "contactinformation"
 
@@ -182,6 +196,23 @@ class HubspotClient:
                     found[str(v).lower()] = r["id"]
         return found
 
+    def search_all(self, object_type: str, filters: list[dict], properties: list[str]) -> list[dict]:
+        """Return every object matching ``filters`` (paginated), with ``properties``."""
+        out: list[dict] = []
+        after = None
+        while True:
+            body = {"filterGroups": [{"filters": filters}], "properties": properties, "limit": 100}
+            if after:
+                body["after"] = after
+            status, resp = self._request("POST", f"/crm/v3/objects/{object_type}/search", body)
+            if status != 200:
+                raise HubspotError(f"search {object_type} failed: {status} {resp}")
+            out.extend(resp.get("results", []))
+            after = resp.get("paging", {}).get("next", {}).get("after")
+            if not after:
+                break
+        return out
+
     def batch_create(self, object_type: str, inputs: list[dict]) -> list[dict]:
         results: list[dict] = []
         for chunk in _chunks(inputs, 100):
@@ -229,7 +260,7 @@ def run_hubspot_setup(cfg, store=None, client: Optional[HubspotClient] = None,  
                "skipped": []}
 
     for obj, props, group in (("companies", COMPANY_PROPERTIES, COMPANY_GROUP),
-                              ("contacts", CONTACT_PROPERTIES, CONTACT_GROUP)):
+                              ("contacts", CONTACT_PROPERTIES + CALL_FEEDBACK_PROPERTIES, CONTACT_GROUP)):
         key = "company_props" if obj == "companies" else "contact_props"
         for spec in props:
             if hc.property_exists(obj, spec["name"]):
@@ -362,4 +393,46 @@ def run_hubspot_sync(cfg, store, client: Optional[HubspotClient] = None,  # noqa
     stats["hubspot_calls"] = hc.calls
 
     log.info("hubspot_sync", **stats)
+    return stats
+
+
+# --------------------------------------------------------------------------- #
+# Pull — read caller call-feedback back into the pipeline (the feedback loop)
+# --------------------------------------------------------------------------- #
+_FEEDBACK_PROPS = ["email", "call_outcome", "call_notes", "call_date", "next_step"]
+
+
+def run_hubspot_pull(cfg, store, client: Optional[HubspotClient] = None,  # noqa: ANN001
+                     dry_run: bool = False) -> dict:
+    """Read call-feedback (outcome/notes/date/next-step) that callers filled on our
+    HubSpot contacts back into the local ``crm_feedback`` table, keyed to the
+    company domain — so downstream targeting/scoring can use real call results."""
+    from collections import Counter
+
+    hc = client or HubspotClient(token=cfg.secrets.hubspot_api_key)
+    email_to_domain = store.email_domain_map()
+
+    contacts = hc.search_all(
+        "contacts",
+        [{"propertyName": "spoc_type", "operator": "EQ", "value": "Primary"}],
+        _FEEDBACK_PROPS)
+
+    pulled = 0
+    outcomes: Counter = Counter()
+    for c in contacts:
+        pr = c.get("properties", {}) or {}
+        outcome, notes, nxt = pr.get("call_outcome"), pr.get("call_notes"), pr.get("next_step")
+        # only rows a caller actually touched (ignore the default "Not Called"/empty)
+        if not (notes or nxt or (outcome and outcome != "Not Called")):
+            continue
+        email = (pr.get("email") or "").strip().lower()
+        domain = email_to_domain.get(email)
+        if not dry_run:
+            store.upsert_feedback(domain, email, outcome, notes, pr.get("call_date"), nxt)
+        pulled += 1
+        outcomes[outcome or "(notes only)"] += 1
+
+    stats = {"contacts_scanned": len(contacts), "feedback_pulled": pulled,
+             "outcomes": dict(outcomes), "dry_run": dry_run}
+    log.info("hubspot_pull", **{k: v for k, v in stats.items() if k != "outcomes"})
     return stats

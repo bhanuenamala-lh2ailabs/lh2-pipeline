@@ -329,6 +329,32 @@ class Store:
             is not None
         )
 
+    # -- CRM feedback + lookup -------------------------------------------- #
+    def email_domain_map(self) -> dict[str, str]:
+        """{lowercased email: company domain} for every person with an email —
+        used to key HubSpot call-feedback back to a company."""
+        cur = self._conn.execute(
+            "SELECT email, domain FROM people WHERE email IS NOT NULL AND email != ''")
+        return {r["email"].strip().lower(): r["domain"] for r in cur}
+
+    def upsert_feedback(self, domain: Optional[str], email: str, call_outcome: Optional[str],
+                        call_notes: Optional[str], call_date: Optional[str],
+                        next_step: Optional[str]) -> None:
+        with self.tx() as c:
+            c.execute(
+                """
+                INSERT INTO crm_feedback
+                  (email, domain, call_outcome, call_notes, call_date, next_step, pulled_at)
+                VALUES (?,?,?,?,?,?,?)
+                ON CONFLICT(email) DO UPDATE SET
+                   domain=excluded.domain, call_outcome=excluded.call_outcome,
+                   call_notes=excluded.call_notes, call_date=excluded.call_date,
+                   next_step=excluded.next_step, pulled_at=excluded.pulled_at
+                """,
+                (email.strip().lower(), domain, call_outcome, call_notes, call_date,
+                 next_step, _iso(utcnow())),
+            )
+
     # -- quota ledger (persistent per-provider accounting) ---------------- #
     def quota_get(self, provider: str, metric: str, window_key: str) -> tuple[int, Optional[int]]:
         """Return (used, limit_value) for a provider/metric/window; (0, None) if absent."""
