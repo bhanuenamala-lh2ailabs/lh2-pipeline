@@ -45,7 +45,7 @@ SCOPES = [
 
 # Qualified tab schema (per spec — Email is column 5, "Synced At" is appended).
 QUALIFIED_COLUMNS = [
-    "#", "Company", "Founder(s)", "Founder LinkedIn (verified)", "Email",
+    "#", "Company", "Domain", "Founder(s)", "Founder LinkedIn (verified)", "Email",
     "Contact Number", "SPOC 2 Linkedin", "Contact Number 2", "Incorp. Year",
     "HQ / India delivery", "Approx. Headcount", "Size Bucket",
     "Headcount source (approx.)", "Segment", "Status", "Notes", "Synced At",
@@ -253,6 +253,7 @@ class SheetsSyncer:
             new_rows.append([
                 idx,
                 _company_cell(co, True, self.resolver),
+                co.domain,                     # plain domain — for CRM dedup (HubSpot etc.)
                 _founders_cell(people),
                 _li(primary),
                 _email(primary),

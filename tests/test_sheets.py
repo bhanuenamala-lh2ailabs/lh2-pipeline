@@ -120,7 +120,8 @@ def test_qualified_appends_only_four_field_firms(tmp_path):
     assert ws.values[0] == QUALIFIED_COLUMNS
     row = ws.values[1]
     assert row[0] == 1                          # numbering starts at 1
-    assert row[4] == "a@foo.com"                # Email is column 5
+    assert row[2] == "foo.com"                  # plain Domain column (for CRM dedup)
+    assert row[5] == "a@foo.com"                # Email (shifted right by the Domain col)
     assert row[-1] == "2026-07-13T09:30:00+00:00"   # Synced At
     s.close()
 
