@@ -240,6 +240,11 @@ class SignalhireClient:
         The paid SignalHire reveal bundles phone + email + LinkedIn in one credit;
         all three are matched-by-company, so all three are trustworthy for this
         person (the sales team still verifies before outreach)."""
+        # Gate on the monthly credit budget (fair daily share) BEFORE spending a
+        # reveal. Raises QuotaExceeded when today's budget is spent or the 4k/mo
+        # cap is hit → the enrich loop stops cleanly.
+        if self.governor is not None:
+            self.governor.require_credit()
         body = {"items": [identifier], "withoutWaterfall": True}
         resp = self._raw_request(ENRICH_PATH, body)
         self.enrich_calls += 1
@@ -253,6 +258,9 @@ class SignalhireClient:
                 phones.extend(_phones_from_contacts(cand))
                 emails.extend(_emails_from_contacts(cand))
                 linkedin = linkedin or self._linkedin_from_candidate(cand)
+        # "No find, no charge": only count a credit when a phone/email was revealed.
+        if self.governor is not None and (phones or emails):
+            self.governor.charge_credit()
         return {"phones": phones, "emails": emails, "linkedin": linkedin}
 
     def enrich(self, identifier: str) -> list[str]:

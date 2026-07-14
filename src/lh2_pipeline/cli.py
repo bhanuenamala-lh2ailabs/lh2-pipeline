@@ -175,6 +175,12 @@ def enrich(
             f"signalhire_calls={stats['signalhire_calls']}, "
             f"claude_calls={stats['claude_calls']}"
         )
+        if stats.get("credits_budget_month"):
+            note = " — DAILY BUDGET REACHED" if stats.get("credit_budget_reached") else ""
+            typer.echo(
+                f"        credits: {stats['credits_used_today']}/{stats['credits_daily_budget']} today, "
+                f"{stats['credits_used_month']}/{stats['credits_budget_month']} this month{note}"
+            )
     except NotImplementedError as e:
         typer.echo(f"[stub] enrich not yet implemented: {e}")
     except RuntimeError as e:

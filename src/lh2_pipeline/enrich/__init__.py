@@ -246,13 +246,26 @@ def run_enrich(cfg, store, max_enrich=None, refresh=False, clients=None, only_ne
     sh = clients.get("signalhire")
     li = clients.get("linkedin")
 
+    sh_gov = sh.governor if sh is not None else None
+
     stats = {"enriched": 0, "skipped_existing": 0, "founders": 0, "phones": 0,
              "emails": 0, "signalhire_calls": 0, "claude_calls": 0,
-             "quota_reached": False}
+             "quota_reached": False, "credit_budget_reached": False}
     try:
         for co in store.iter_companies(gate_pass=True):
             if stats["enriched"] >= cap:
                 log.info("max_enrich_reached", cap=cap)
+                break
+
+            # Stop before a firm we can't afford today: the daily fair-share of the
+            # monthly credit budget is spent (or the monthly cap is hit). This is
+            # what spreads the 4k/month evenly across days.
+            if sh_gov is not None and not sh_gov.credits_available_today():
+                log.info("enrich_stopped_credit_budget",
+                         month_used=sh_gov.credit_month_used(),
+                         daily_budget=sh_gov.credit_daily_budget(),
+                         enriched=stats["enriched"])
+                stats["credit_budget_reached"] = True
                 break
 
             # incremental mode: skip firms that already have people rows
@@ -274,6 +287,11 @@ def run_enrich(cfg, store, max_enrich=None, refresh=False, clients=None, only_ne
         if sh is not None:
             stats["signalhire_calls"] = sh.search_calls + sh.enrich_calls
             stats["signalhire_credits_left"] = sh.last_credits_left
+        if sh_gov is not None and sh_gov.monthly_credit_budget:
+            stats["credits_used_month"] = sh_gov.credit_month_used()
+            stats["credits_used_today"] = sh_gov.credit_today_used()
+            stats["credits_daily_budget"] = sh_gov.credit_daily_budget()
+            stats["credits_budget_month"] = sh_gov.monthly_credit_budget
         if claude is not None:
             stats["claude_calls"] = claude.calls
             stats["claude_tokens"] = claude.tokens

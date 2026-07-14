@@ -173,6 +173,11 @@ providers:
   # bottleneck (SignalHire returns 402 when the daily search quota is exhausted).
   signalhire:
     enabled: true
+    # HARD monthly cap: 4000 credits/month for email+phone reveals (combined).
+    # Spent fairly across the month (remaining / days-left) so it never crosses
+    # 4000 even if some days run heavy or are skipped. Tracked in the persistent
+    # `quota` table, so it holds across runs/restarts.
+    monthly_credit_budget: 4000
     limits:
       requests_per_minute: 60
       search_per_day: 5000

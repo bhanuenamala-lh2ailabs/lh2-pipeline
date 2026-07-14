@@ -59,11 +59,14 @@ jobs:
           fi
 
       - name: Run enrichment + scoring
+        # No firm cap here: the monthly credit budget (config providers.signalhire.
+        # monthly_credit_budget = 4000) paces enrichment to its fair daily share
+        # (~remaining/days-left), so it spends up to 4000/month spread across days.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SIGNALHIRE_API_KEY: ${{ secrets.SIGNALHIRE_API_KEY }}
         run: |
-          lh2 enrich --max-enrich 100
+          lh2 enrich
           lh2 score
 
       - name: Sync to Google Sheets

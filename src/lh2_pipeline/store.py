@@ -338,6 +338,16 @@ class Store:
         ).fetchone()
         return (r["used"], r["limit_value"]) if r else (0, None)
 
+    def quota_sum(self, provider: str, metric: str, window_prefix: str) -> int:
+        """Total ``used`` across every window whose key starts with ``window_prefix``.
+        Used to sum a month's per-day credit rows (prefix "YYYY-MM")."""
+        r = self._conn.execute(
+            "SELECT COALESCE(SUM(used), 0) AS n FROM quota "
+            "WHERE provider=? AND metric=? AND window_key LIKE ? || '%'",
+            (provider, metric, window_prefix),
+        ).fetchone()
+        return int(r["n"]) if r else 0
+
     def quota_add(self, provider: str, metric: str, window_key: str,
                   delta: int = 1, limit_value: Optional[int] = None) -> int:
         """Atomically add ``delta`` to a quota counter; returns the new used total.

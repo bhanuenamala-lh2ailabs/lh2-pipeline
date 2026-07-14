@@ -126,6 +126,87 @@ def test_governor_stops_at_cap(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Monthly credit budget with fair daily pacing
+# --------------------------------------------------------------------------- #
+def _gov_credits(store, budget, day):
+    led = QuotaLedger(store, "signalhire", {}, now_fn=_fixed(day))
+    return Governor("signalhire", RateLimiter(), led, monthly_credit_budget=budget)
+
+
+def test_credit_daily_budget_spreads_across_month(tmp_path):
+    s = Store(tmp_path / "cr.sqlite")
+    s.init_db()
+    # July has 31 days; on the 14th, days_left = 31-14+1 = 18
+    g = _gov_credits(s, 4000, day=14)
+    assert g.credit_daily_budget() == -(-4000 // 18)   # ceil(4000/18) = 223
+    assert g.credits_available_today() is True
+    # spend today's whole allowance → no more today, but month is nowhere near cap
+    for _ in range(g.credit_daily_budget()):
+        g.charge_credit()
+    assert g.credits_available_today() is False
+    assert g.credit_month_used() == 223
+    s.close()
+
+
+def test_credit_budget_rolls_unused_into_later_days(tmp_path):
+    s = Store(tmp_path / "cr2.sqlite")
+    s.init_db()
+    # 3000 already spent earlier in the month; on the last day (days_left=1)
+    # the remaining 1000 is all available that day.
+    s.quota_add("signalhire", "credits", "2026-07-05", 3000)
+    g = _gov_credits(s, 4000, day=31)
+    assert g.credit_month_used() == 3000
+    assert g.credit_daily_budget() == 1000
+    s.close()
+
+
+def test_credit_monthly_cap_is_hard(tmp_path):
+    s = Store(tmp_path / "cr3.sqlite")
+    s.init_db()
+    s.quota_add("signalhire", "credits", "2026-07-10", 3999)
+    g = _gov_credits(s, 4000, day=31)
+    assert g.credits_available_today() is True
+    g.require_credit()             # ok — one left
+    g.charge_credit()              # -> 4000
+    assert g.credit_month_used() == 4000
+    assert g.credits_available_today() is False
+    with pytest.raises(QuotaExceeded):
+        g.require_credit()         # monthly cap reached
+    s.close()
+
+
+def test_enrich_stops_on_daily_credit_budget(tmp_path):
+    store = Store(tmp_path / "ce.sqlite")
+    store.init_db()
+    for i in range(5):
+        store.upsert_company(Company(domain=f"c{i}.com", company_name=f"C{i} Labs",
+                                     city="Pune", founded_year=2015, size_band="10-49",
+                                     gate_pass=True))
+
+    def sh_responder(path, payload):
+        if path.endswith("searchByQuery"):
+            comp = payload.get("currentCompany", "")
+            return {"profiles": [{"fullName": "A Founder", "uid": "U",
+                                  "experience": [{"company": comp, "title": "Founder"}]}]}
+        return [{"item": "U", "status": "success",
+                 "candidate": {"contacts": [{"type": "phone", "value": "9876543210"}]}}]
+
+    # last day of the month, budget 2 -> daily allowance 2 -> stops after 2 firms
+    led = QuotaLedger(store, "signalhire", {"search_per_day": 5000}, now_fn=_fixed(31))
+    gov = Governor("signalhire", RateLimiter(), led, monthly_credit_budget=2)
+    clients = {
+        "fetcher": None, "claude": None, "registry": None, "company_site": None,
+        "signalhire": SignalhireClient(responder=sh_responder, governor=gov),
+        "linkedin": None,
+    }
+    stats = run_enrich(_cfg(), store, clients=clients)
+    assert stats["credit_budget_reached"] is True
+    assert stats["enriched"] == 2
+    assert gov.credit_month_used() == 2
+    store.close()
+
+
+# --------------------------------------------------------------------------- #
 # Net-new exclusion loader
 # --------------------------------------------------------------------------- #
 class _FakeCfg:

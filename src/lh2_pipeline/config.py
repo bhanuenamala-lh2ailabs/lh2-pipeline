@@ -142,6 +142,11 @@ class ProviderConfig(BaseModel):
     enabled: bool = False
     limits: ProviderLimits = Field(default_factory=ProviderLimits)
     reset: str = "daily_utc"        # daily_utc | monthly | none
+    # Hard monthly credit budget for contact REVEALS (email+phone). Spent fairly
+    # across the month: each day's allowance = remaining_budget / days_left. None
+    # = uncapped. This is a real business cap (not rate-safety), so it's used in
+    # full — no safety_margin applied.
+    monthly_credit_budget: Optional[int] = None
 
 
 class ProviderDefaults(BaseModel):
