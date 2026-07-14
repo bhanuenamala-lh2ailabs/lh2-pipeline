@@ -35,6 +35,10 @@ def _enum(options: list[str]) -> list[dict]:
 
 
 COMPANY_PROPERTIES = [
+    # Unique-value key for true idempotent upsert (HubSpot's standard `domain`
+    # isn't a unique-value property, and search-based dedup races its index lag).
+    {"name": "lh2_domain", "label": "LH2 Domain (unique key)", "type": "string",
+     "fieldType": "text", "hasUniqueValue": True},
     {"name": "founded_year", "label": "Founded Year", "type": "number", "fieldType": "number"},
     {"name": "size_bucket", "label": "Size Bucket", "type": "enumeration", "fieldType": "select",
      "options": _enum(["1-100", "100-500", "500-1000"])},
@@ -117,6 +121,8 @@ class HubspotClient:
                 "fieldType": spec["fieldType"], "groupName": group}
         if "options" in spec:
             body["options"] = spec["options"]
+        if spec.get("hasUniqueValue"):
+            body["hasUniqueValue"] = True
         status, resp = self._request("POST", f"/crm/v3/properties/{object_type}", body)
         # HubSpot requires unique property LABELS across an object; a standard prop
         # (e.g. hs_linkedin_url labelled "LinkedIn URL") can collide. The property
@@ -277,6 +283,7 @@ def _company_props(co, source_label: str, synced_at: str) -> dict:  # noqa: ANN0
     props = {
         "name": co.company_name,
         "domain": co.domain,
+        "lh2_domain": co.domain,          # unique-value key for idempotent upsert
         "city": co.city,
         "country": co.hq_country,
         "founded_year": co.founded_year,
@@ -308,7 +315,7 @@ def run_hubspot_sync(cfg, store, client: Optional[HubspotClient] = None,  # noqa
     synced_at = utcnow().strftime("%Y-%m-%d")
     source_label = getattr(cfg.hubspot, "pipeline_source", "LH2 pipeline")
 
-    companies: list[tuple] = []      # (domain, properties)
+    company_inputs: list[dict] = []
     contact_inputs: list[dict] = []
     # remember which contact email belongs to which company domain (for association)
     email_to_domain: dict[str, str] = {}
@@ -318,39 +325,27 @@ def run_hubspot_sync(cfg, store, client: Optional[HubspotClient] = None,  # noqa
         if not _is_qualified(people):
             continue
         primary = people[0]
-        companies.append((co.domain, _company_props(co, source_label, synced_at)))
+        company_inputs.append({"idProperty": "lh2_domain", "id": co.domain,
+                               "properties": _company_props(co, source_label, synced_at)})
         contact_inputs.append({"idProperty": "email", "id": primary.email,
                                "properties": _contact_props(primary)})
         email_to_domain[primary.email.strip().lower()] = co.domain
-        if limit and len(companies) >= limit:
+        if limit and len(company_inputs) >= limit:
             break
 
-    stats = {"companies": len(companies), "contacts": len(contact_inputs),
+    stats = {"companies": len(company_inputs), "contacts": len(contact_inputs),
              "associations": 0, "dry_run": dry_run}
-    if dry_run or not companies:
+    if dry_run or not company_inputs:
         log.info("hubspot_sync_preview", **stats)
         return stats
 
-    # 1) COMPANIES — domain isn't a HubSpot unique-value property, so we can't
-    # upsert by it. Search existing by domain, then create-or-update. Idempotent.
-    existing = hc.search_ids("companies", "domain", [d for d, _ in companies])
-    to_update, to_create = [], []
-    domain_to_cid: dict[str, str] = {}
-    for domain, props in companies:
-        cid = existing.get(domain.lower())
-        if cid:
-            domain_to_cid[domain.lower()] = cid
-            to_update.append({"id": cid, "properties": props})
-        else:
-            to_create.append({"properties": props})
-    hc.batch_update("companies", to_update)
-    for r in hc.batch_create("companies", to_create):
-        d = str(r.get("properties", {}).get("domain", "")).lower()
-        if d and r.get("id"):
-            domain_to_cid[d] = r["id"]
-
-    # 2) CONTACTS — email IS a unique-value property, so upsert-by-email works.
+    # 1) Upsert companies (by the unique lh2_domain key) + contacts (by email).
+    # Both keys are HubSpot unique-value properties → atomic, no search, no
+    # index-lag races → truly idempotent on back-to-back runs.
+    co_results = hc.batch_upsert("companies", company_inputs)
     ct_results = hc.batch_upsert("contacts", contact_inputs)
+    domain_to_cid = {str(r.get("properties", {}).get("lh2_domain", "")).lower(): r["id"]
+                     for r in co_results if r.get("id")}
     email_to_ctid = {str(r.get("properties", {}).get("email", "")).lower(): r["id"]
                      for r in ct_results if r.get("id")}
 

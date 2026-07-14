@@ -96,11 +96,9 @@ def test_sync_pushes_only_qualified_with_upsert_keys(tmp_path):
 
     def responder(method, path, json):
         calls.append((path, json))
-        if path.endswith("/companies/search"):
-            return 200, {"results": []}            # none exist yet → all created
-        if path.endswith("/companies/batch/create"):
+        if path.endswith("/companies/batch/upsert"):
             return 200, {"results": [{"id": f"co{i}",
-                                     "properties": {"domain": inp["properties"]["domain"]}}
+                                     "properties": {"lh2_domain": inp["id"]}}
                                      for i, inp in enumerate(json["inputs"])]}
         if path.endswith("/contacts/batch/upsert"):
             return 200, {"results": [{"id": f"ct{i}", "properties": {"email": inp["id"]}}
@@ -112,10 +110,11 @@ def test_sync_pushes_only_qualified_with_upsert_keys(tmp_path):
     stats = run_hubspot_sync(FakeCfg(), store, client=HubspotClient(responder=responder))
     assert stats["companies"] == 1 and stats["contacts"] == 1 and stats["associations"] == 1
 
-    # company created (search found none), with mapped custom props incl. domain
-    co_call = next(j for p, j in calls if p.endswith("/companies/batch/create"))
+    # company upserted by the unique lh2_domain key, with mapped custom props
+    co_call = next(j for p, j in calls if p.endswith("/companies/batch/upsert"))
     ci = co_call["inputs"][0]
-    assert ci["properties"]["domain"] == "acme.com"
+    assert ci["idProperty"] == "lh2_domain" and ci["id"] == "acme.com"
+    assert ci["properties"]["lh2_domain"] == "acme.com"
     assert ci["properties"]["size_bucket"] == "100-500"
     assert ci["properties"]["founded_year"] == 2016
     assert ci["properties"]["pipeline_source"] == "TEST-SRC"
