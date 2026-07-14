@@ -20,6 +20,7 @@ Testability: inject ``responder(path, payload) -> dict`` to bypass HTTP.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable, Optional
 
 from rapidfuzz import fuzz
@@ -82,6 +83,7 @@ class SignalhireClient:
         responder: Optional[Responder] = None,
         timeout_s: int = 40,
         governor=None,             # noqa: ANN001 — governor.Governor | None
+        max_retries: int = 3,      # transient network/5xx retries
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -89,6 +91,7 @@ class SignalhireClient:
         self._responder = responder
         self.timeout_s = timeout_s
         self.governor = governor   # rate-limit + daily search-quota guard
+        self.max_retries = max_retries
         self.search_calls = 0      # cost counters
         self.enrich_calls = 0
         self.last_credits_left: Optional[int] = None
@@ -107,8 +110,18 @@ class SignalhireClient:
 
         headers = {"apikey": self.api_key, "Content-Type": "application/json"}
         url = self.base_url + path
-        with httpx.Client(timeout=self.timeout_s) as client:
-            r = client.request(method, url, json=payload, headers=headers)
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                with httpx.Client(timeout=self.timeout_s) as client:
+                    r = client.request(method, url, json=payload, headers=headers)
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                # transient network hiccup (read/connect timeout, conn reset) → retry
+                last_exc = e
+                log.info("signalhire_transient_retry", attempt=attempt, err=str(e))
+                time.sleep(min(10.0, 2 ** attempt))
+                continue
+
             cl = r.headers.get("X-Credits-Left")
             if cl is not None:
                 try:
@@ -123,8 +136,14 @@ class SignalhireClient:
                 # Either way, signal the enrich loop to stop cleanly (resumable).
                 metric = "credits" if path == ENRICH_PATH else "search"
                 raise QuotaExceeded("signalhire", metric, used=0, limit=0)
+            if r.status_code >= 500:            # transient server error → retry
+                last_exc = httpx.HTTPStatusError(str(r.status_code), request=r.request, response=r)
+                log.info("signalhire_5xx_retry", attempt=attempt, status=r.status_code)
+                time.sleep(min(10.0, 2 ** attempt))
+                continue
             r.raise_for_status()
             return r.json() if r.content else {}
+        raise last_exc if last_exc else RuntimeError(f"signalhire request failed: {path}")
 
     # -- public ------------------------------------------------------------ #
     def credits(self) -> Optional[int]:

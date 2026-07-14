@@ -249,7 +249,7 @@ def run_enrich(cfg, store, max_enrich=None, refresh=False, clients=None, only_ne
     sh_gov = sh.governor if sh is not None else None
 
     stats = {"enriched": 0, "skipped_existing": 0, "founders": 0, "phones": 0,
-             "emails": 0, "signalhire_calls": 0, "claude_calls": 0,
+             "emails": 0, "failed": 0, "signalhire_calls": 0, "claude_calls": 0,
              "quota_reached": False, "credit_budget_reached": False}
     try:
         for co in store.iter_companies(gate_pass=True):
@@ -283,6 +283,13 @@ def run_enrich(cfg, store, max_enrich=None, refresh=False, clients=None, only_ne
                          enriched=stats["enriched"])
                 stats["quota_reached"] = True
                 break
+            except Exception as e:  # noqa: BLE001 — one bad firm must not kill the run
+                # Transient failure that survived per-request retries (network, a
+                # malformed response, etc.). Skip this firm and keep going; it'll
+                # be retried on the next run (nothing was cached for it).
+                log.info("enrich_firm_failed", domain=co.domain, err=str(e))
+                stats["failed"] = stats.get("failed", 0) + 1
+                continue
 
         if sh is not None:
             stats["signalhire_calls"] = sh.search_calls + sh.enrich_calls
