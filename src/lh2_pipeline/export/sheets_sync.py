@@ -111,6 +111,14 @@ class _GspreadWorksheet:
     def clear(self) -> None:
         self._ws.clear()
 
+    def insert_header(self, header: list) -> None:
+        """Insert a header row ABOVE existing data (data had no header)."""
+        self._ws.insert_row(list(header), index=1, value_input_option="USER_ENTERED")
+
+    def set_header(self, header: list) -> None:
+        """Overwrite row 1 in place (stale header of a different schema)."""
+        self._ws.update([list(header)], "A1", value_input_option="USER_ENTERED")
+
 
 class _GspreadSpreadsheet:
     def __init__(self, ss):  # noqa: ANN001
@@ -198,7 +206,14 @@ class SheetsSyncer:
         if not values:
             ws.append_rows([header])
             return ws, []
-        return ws, values[1:]
+        first = values[0]
+        if first == header:
+            return ws, values[1:]              # header already correct
+        if first and first[0] == header[0]:
+            ws.set_header(header)              # stale header (same anchor, old schema) → overwrite
+            return ws, values[1:]
+        ws.insert_header(header)               # row 0 is data → insert header above it
+        return ws, values
 
     # -- Qualified (append-only, net-new) --------------------------------- #
     def sync_qualified(self, store, start_index: Optional[int] = None,  # noqa: ANN001

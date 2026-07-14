@@ -32,6 +32,15 @@ class FakeWorksheet:
     def clear(self):
         self.values = []
 
+    def insert_header(self, header):
+        self.values.insert(0, list(header))
+
+    def set_header(self, header):
+        if self.values:
+            self.values[0] = list(header)
+        else:
+            self.values.append(list(header))
+
 
 class FakeSpreadsheet:
     def __init__(self):
@@ -176,6 +185,29 @@ def test_stats_row(tmp_path):
     assert stats["All-Four %"] == "100%"
     assert ss.tabs["Pipeline Stats"].values[0] == STATS_COLUMNS
     s.close()
+
+
+# --- header reconciliation (backfills a missing/stale header) -------------- #
+def test_qualified_backfills_missing_header(tmp_path):
+    s = _store(tmp_path)
+    _full_firm(s, domain="hdr.com", name="Hdr Co")
+    ss = FakeSpreadsheet()
+    # tab has DATA rows but no header (a manual-clear artifact)
+    ss.seed("Qualified Leads", [
+        [1, '=HYPERLINK("https://old.com","Old")'] + [""] * (len(QUALIFIED_COLUMNS) - 2)])
+    _syncer(tmp_path, ss).sync_qualified(s)
+    vals = ss.tabs["Qualified Leads"].values
+    assert vals[0] == QUALIFIED_COLUMNS          # header inserted above the data
+    assert vals[1][1].endswith('"Old")')         # pre-existing data row preserved
+    assert vals[2][1].endswith('"Hdr Co")')      # new firm appended
+
+
+def test_qualified_overwrites_stale_header(tmp_path):
+    s = _store(tmp_path)
+    ss = FakeSpreadsheet()
+    ss.seed("Qualified Leads", [["#", "Company", "OLD SCHEMA"]])   # same anchor, wrong cols
+    _syncer(tmp_path, ss).sync_qualified(s)
+    assert ss.tabs["Qualified Leads"].values[0] == QUALIFIED_COLUMNS
 
 
 # --- dry-run writes nothing ------------------------------------------------ #
