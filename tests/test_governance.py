@@ -248,6 +248,27 @@ def test_exclusions_harvest_names_and_domains(tmp_path):
     assert "applane" in names_lower
 
 
+def test_exclusions_harvest_from_xlsx_all_sheets(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook()
+    ws1 = wb.active
+    ws1.title = "IT Services Firms"
+    ws1.append(["#", "Company", "Reachout Date"])
+    ws1.append([1, "Velotio Technologies", "2026-07-01"])
+    ws2 = wb.create_sheet("Pilot Leads")
+    ws2.append(["First name", "Company name", "Email address"])
+    ws2.append(["Kundan", "Supersei.ai", "k@gmail.com"])
+    path = tmp_path / "reached_out.xlsx"
+    wb.save(path)
+
+    gates = GatesConfig(blocklist_known_file=None, exclude_name_files=["reached_out.xlsx"])
+    ex = load_exclusions(_FakeCfg(tmp_path, gates))
+    names = {n.lower() for n in ex.names}
+    assert "velotio technologies" in names          # from sheet 1 "Company"
+    assert "supersei.ai" in names                    # from sheet 2 "Company name"
+    assert "supersei.ai" in ex.domains               # domain-like name -> domain too
+
+
 def test_exclusions_missing_file_is_skipped(tmp_path):
     gates = GatesConfig(blocklist_known_file=None,
                         exclude_name_files=["does_not_exist.csv"])

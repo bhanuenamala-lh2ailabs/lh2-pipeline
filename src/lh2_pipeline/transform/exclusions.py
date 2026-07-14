@@ -74,6 +74,63 @@ def load_domain_file(path) -> set[str]:  # noqa: ANN001
     return out
 
 
+def _harvest_row(ex: "Exclusions", row, name_i, domain_i) -> None:  # noqa: ANN001
+    """Pull a name (+ any embedded/domain-like domain) and a domain-column value
+    from one row into ``ex``."""
+    if name_i is not None and name_i < len(row) and row[name_i] and str(row[name_i]).strip():
+        display, url = _unwrap_hyperlink(str(row[name_i]))
+        if display:
+            ex.names.append(display)
+            # a domain-like company name (e.g. "Supersei.ai") is also a domain
+            if " " not in display:
+                d = canonical_domain(display)
+                if d:
+                    ex.domains.add(d)
+        if url:
+            d = canonical_domain(url)
+            if d:
+                ex.domains.add(d)
+    if domain_i is not None and domain_i < len(row) and row[domain_i] and str(row[domain_i]).strip():
+        d = canonical_domain(str(row[domain_i]))
+        if d:
+            ex.domains.add(d)
+
+
+def load_name_xlsx(path) -> Exclusions:  # noqa: ANN001
+    """Harvest names + domains from every sheet of an .xlsx workbook. Each sheet's
+    header is scanned for a Company / Domain column independently."""
+    ex = Exclusions()
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        log.info("exclude_xlsx_needs_openpyxl", path=str(path))
+        return ex
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        for ws in wb.worksheets:
+            it = ws.iter_rows(values_only=True)
+            header = next(it, None)
+            if not header:
+                continue
+            hdr = [str(c).strip().lower() if c is not None else "" for c in header]
+            name_i = next((i for i, h in enumerate(hdr) if h in _NAME_HEADERS), None)
+            domain_i = next((i for i, h in enumerate(hdr) if h in _DOMAIN_HEADERS), None)
+            if name_i is None and domain_i is None:
+                continue
+            for row in it:
+                _harvest_row(ex, row, name_i, domain_i)
+    finally:
+        wb.close()
+    return ex
+
+
+def load_name_file(path) -> Exclusions:  # noqa: ANN001
+    """Dispatch a name/known file to the CSV or XLSX harvester by extension."""
+    if path.suffix.lower() in (".xlsx", ".xlsm", ".xls"):
+        return load_name_xlsx(path)
+    return load_name_csv(path)
+
+
 def load_name_csv(path) -> Exclusions:  # noqa: ANN001
     """Harvest names + domains from a delivery/known CSV."""
     ex = Exclusions()
@@ -155,7 +212,7 @@ def load_exclusions(cfg) -> Exclusions:  # noqa: ANN001
             log.info("exclude_file_missing", path=key)
             continue
         try:
-            ex.merge(load_name_csv(path))
+            ex.merge(load_name_file(path))
         except Exception as e:  # never let one malformed file break the build
             log.info("exclude_file_error", path=key, err=str(e))
 

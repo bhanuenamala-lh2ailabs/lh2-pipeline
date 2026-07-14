@@ -118,7 +118,9 @@ gates:
   # The canonical "already delivered" ledger is data/delivered_domains.txt.
   # name_files: company names + any embedded domains (=HYPERLINK / Domain column).
   exclude_name_files:
-    - "AI Labs to do - filled.csv"     # deadpooled-AI-startups vertical (separate list)
+    - "AI Labs to do - filled.csv"           # deadpooled-AI-startups vertical (separate list)
+    - "Indian IT Services.xlsx"              # already reached-out firms (all sheets) — do NOT re-surface
+    - "Linkedin_Pilot_ITServices_Leads.xlsx" # LinkedIn pilot leads already contacted
   # domain_files: one canonical domain per line (the delivered ledger).
   exclude_domain_files:
     - "data/delivered_domains.txt"      # 99 firms already delivered (append_ready batch)
