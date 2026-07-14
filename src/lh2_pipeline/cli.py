@@ -288,6 +288,57 @@ def sync(
         store.close()
 
 
+@app.command("hubspot-setup")
+def hubspot_setup(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report what would be created; create nothing."),
+) -> None:
+    """Phase 5c — create HubSpot custom properties + the deal pipeline (idempotent)."""
+    cfg = _cfg(ctx)
+    if not cfg.secrets.hubspot_api_key:
+        typer.echo("HUBSPOT_API_KEY not set in .env"); raise typer.Exit(code=2)
+    from .export.hubspot import run_hubspot_setup
+
+    try:
+        r = run_hubspot_setup(cfg, dry_run=dry_run)
+    except Exception as e:  # noqa: BLE001
+        typer.echo(f"hubspot-setup failed: {e}"); raise typer.Exit(code=1)
+    prefix = "[dry-run] would create" if dry_run else "created"
+    typer.echo(f"hubspot-setup: {prefix} company props {r['company_props'] or '(none)'}, "
+               f"contact props {r['contact_props'] or '(none)'}, pipeline {r['pipeline'] or '(exists)'}")
+    typer.echo(f"        skipped (already exist): {len(r['skipped'])}")
+    if r.get("pipeline_error"):
+        typer.echo(f"        NOTE: deal pipeline not created — {r['pipeline_error']}")
+        typer.echo("        (HubSpot free/starter caps pipelines at 1; use the default, or upgrade. "
+                   "Sync pushes companies+contacts regardless.)")
+
+
+@app.command("hubspot-sync")
+def hubspot_sync(
+    ctx: typer.Context,
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap firms pushed."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report counts; push nothing."),
+) -> None:
+    """Phase 5c — upsert Qualified leads to HubSpot (companies + contacts + associations)."""
+    cfg = _cfg(ctx)
+    if not cfg.hubspot.enabled:
+        typer.echo("hubspot sync disabled (set hubspot.enabled: true)"); return
+    if not cfg.secrets.hubspot_api_key:
+        typer.echo("HUBSPOT_API_KEY not set in .env"); raise typer.Exit(code=2)
+    store = open_store(cfg)
+    try:
+        from .export.hubspot import run_hubspot_sync
+
+        s = run_hubspot_sync(cfg, store, limit=limit, dry_run=dry_run)
+        prefix = "[dry-run] would push" if dry_run else "✓ pushed"
+        typer.echo(f"hubspot-sync: {prefix} {s['companies']} companies, "
+                   f"{s['contacts']} contacts, {s['associations']} associations")
+    except Exception as e:  # noqa: BLE001
+        typer.echo(f"hubspot-sync failed: {e}"); raise typer.Exit(code=1)
+    finally:
+        store.close()
+
+
 @app.command()
 def run(
     ctx: typer.Context,

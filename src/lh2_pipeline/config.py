@@ -171,6 +171,12 @@ class ProvidersConfig(BaseModel):
         return raw if isinstance(raw, ProviderConfig) else ProviderConfig(**raw)
 
 
+class HubspotConfig(BaseModel):
+    """HubSpot CRM sync (Phase 5c). Token from HUBSPOT_API_KEY env (private-app)."""
+    enabled: bool = False
+    pipeline_source: str = "LH2 pipeline"       # value written to the Company 'pipeline_source' prop
+
+
 class SheetsConfig(BaseModel):
     """Google Sheets auto-sync. credentials_file is a service-account JSON (secret,
     gitignored); the sheet must be shared with that service account as Editor."""
@@ -189,6 +195,7 @@ class Secrets(BaseModel):
     signalhire_api_key: Optional[str] = None
     proxycurl_api_key: Optional[str] = None
     coresignal_api_key: Optional[str] = None
+    hubspot_api_key: Optional[str] = None
 
     def masked(self) -> dict[str, str]:
         def mask(v: Optional[str]) -> str:
@@ -201,6 +208,7 @@ class Secrets(BaseModel):
             "signalhire_api_key": mask(self.signalhire_api_key),
             "proxycurl_api_key": mask(self.proxycurl_api_key),
             "coresignal_api_key": mask(self.coresignal_api_key),
+            "hubspot_api_key": mask(self.hubspot_api_key),
         }
 
 
@@ -213,6 +221,7 @@ class Config(BaseModel):
     export: ExportConfig = Field(default_factory=ExportConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     sheets: SheetsConfig = Field(default_factory=SheetsConfig)
+    hubspot: HubspotConfig = Field(default_factory=HubspotConfig)
     secrets: Secrets = Field(default_factory=Secrets)
 
     # Absolute project root (dir containing config.yaml). Not serialized to YAML.
@@ -269,6 +278,7 @@ def load_secrets(project_root: Path) -> Secrets:
         signalhire_api_key=os.getenv("SIGNALHIRE_API_KEY") or None,
         proxycurl_api_key=os.getenv("PROXYCURL_API_KEY") or None,
         coresignal_api_key=os.getenv("CORESIGNAL_API_KEY") or None,
+        hubspot_api_key=os.getenv("HUBSPOT_API_KEY") or None,
     )
 
 

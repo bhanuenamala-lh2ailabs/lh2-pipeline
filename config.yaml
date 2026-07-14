@@ -230,6 +230,15 @@ sheets:
   review_tab: "Under Review"         # 3/4 leads — overwritten each run (re-try queue)
   stats_tab: "Pipeline Stats"        # one metrics row appended per run
 
+# ---------------------------------------------------------------------------
+# HubSpot CRM sync (Phase 5c). Token from HUBSPOT_API_KEY env (private-app).
+# `lh2 hubspot-setup` creates custom props + the deal pipeline (idempotent);
+# `lh2 hubspot-sync` upserts Qualified leads (companies by domain, contacts by email).
+# ---------------------------------------------------------------------------
+hubspot:
+  enabled: true
+  pipeline_source: "LH2 pipeline"   # written to the Company 'pipeline_source' property
+
 export:
   schema_version: 1
   google_search_resolver: "https://www.google.com/search?q={query}"
