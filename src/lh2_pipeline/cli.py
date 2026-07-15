@@ -293,33 +293,50 @@ def hubspot_setup(
     ctx: typer.Context,
     dry_run: bool = typer.Option(False, "--dry-run", help="Report what would be created; create nothing."),
 ) -> None:
-    """Phase 5c — create HubSpot custom properties + the deal pipeline (idempotent)."""
+    """Phase 5c — create HubSpot properties, the 18-stage deal pipeline, and email
+    templates docs (idempotent)."""
     cfg = _cfg(ctx)
     if not cfg.secrets.hubspot_api_key:
         typer.echo("HUBSPOT_API_KEY not set in .env"); raise typer.Exit(code=2)
-    from .export.hubspot import run_hubspot_setup
+    from .export.hubspot_setup import run_hubspot_setup, templates_markdown
 
     try:
         r = run_hubspot_setup(cfg, dry_run=dry_run)
     except Exception as e:  # noqa: BLE001
         typer.echo(f"hubspot-setup failed: {e}"); raise typer.Exit(code=1)
     prefix = "[dry-run] would create" if dry_run else "created"
-    typer.echo(f"hubspot-setup: {prefix} company props {r['company_props'] or '(none)'}, "
-               f"contact props {r['contact_props'] or '(none)'}, pipeline {r['pipeline'] or '(exists)'}")
-    typer.echo(f"        skipped (already exist): {len(r['skipped'])}")
+    typer.echo(f"hubspot-setup: {prefix}")
+    typer.echo(f"  company props: {r['company_props'] or '(none — all exist)'}")
+    typer.echo(f"  contact props: {r['contact_props'] or '(none — all exist)'}")
+    typer.echo(f"  deal props   : {r['deal_props'] or '(none — all exist)'}")
+    pipe = r["pipeline"] or "(already exists)"
+    if r.get("pipeline_action") == "replaced_default":
+        pipe += "  [tier caps pipelines at 1 → repurposed the default pipeline in place]"
+    typer.echo(f"  pipeline     : {pipe}")
+    typer.echo(f"  skipped (already exist): {len(r['skipped'])}")
     if r.get("pipeline_error"):
-        typer.echo(f"        NOTE: deal pipeline not created — {r['pipeline_error']}")
-        typer.echo("        (HubSpot free/starter caps pipelines at 1; use the default, or upgrade. "
-                   "Sync pushes companies+contacts regardless.)")
+        typer.echo(f"  PIPELINE ERROR: {r['pipeline_error']}")
+
+    # Email templates: no public API on this tier → document loudly (spec: never
+    # silently skip). Print + write a markdown doc for one-time manual creation.
+    md_path = cfg.abspath("hubspot_email_templates.md")
+    if not dry_run:
+        md_path.write_text(templates_markdown(), encoding="utf-8")
+    typer.echo("")
+    typer.echo("  EMAIL TEMPLATES (manual, one-time): HubSpot's tier has no template API.")
+    typer.echo(f"  Full copy written to {md_path.name} — create them in HubSpot UI:")
+    typer.echo("    Settings → Objects → Activities → Email templates (or compose → save as template)")
+    typer.echo("    Templates: M1V1 (post-call intro) and M1V2 (cold, no prior call).")
+    typer.echo("    Replace [CALENDLY_LINK] with the lead owner's Calendly URL.")
 
 
 @app.command("hubspot-sync")
 def hubspot_sync(
     ctx: typer.Context,
-    limit: Optional[int] = typer.Option(None, "--limit", help="Cap firms pushed."),
+    limit: Optional[int] = typer.Option(None, "--limit", "--max", help="Cap firms pushed."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Report counts; push nothing."),
 ) -> None:
-    """Phase 5c — upsert Qualified leads to HubSpot (companies + contacts + associations)."""
+    """Phase 5c — sync Qualified leads to HubSpot (Companies + Contacts + Deals)."""
     cfg = _cfg(ctx)
     if not cfg.hubspot.enabled:
         typer.echo("hubspot sync disabled (set hubspot.enabled: true)"); return
@@ -327,16 +344,82 @@ def hubspot_sync(
         typer.echo("HUBSPOT_API_KEY not set in .env"); raise typer.Exit(code=2)
     store = open_store(cfg)
     try:
-        from .export.hubspot import run_hubspot_sync
+        from .export.hubspot_sync import run_hubspot_sync
 
         s = run_hubspot_sync(cfg, store, limit=limit, dry_run=dry_run)
         prefix = "[dry-run] would push" if dry_run else "✓ pushed"
         typer.echo(f"hubspot-sync: {prefix} {s['companies']} companies, "
-                   f"{s['contacts']} contacts, {s['associations']} associations")
+                   f"{s['contacts']} contacts (+{s.get('spoc2_contacts', 0)} SPOC2), "
+                   f"{s['deals']} new deals, {s['associations']} associations")
     except Exception as e:  # noqa: BLE001
         typer.echo(f"hubspot-sync failed: {e}"); raise typer.Exit(code=1)
     finally:
         store.close()
+
+
+@app.command("hubspot-call-outcome")
+def hubspot_call_outcome(
+    ctx: typer.Context,
+    deal_id: Optional[str] = typer.Option(None, "--deal-id", help="Deal to log the call against (omit to list open deals)."),
+    outcome: Optional[int] = typer.Option(None, "--outcome", min=1, max=5,
+                                          help="1=interested 2=rejected 3=busy 4=wrong number 5=no pickup"),
+    callback_time: Optional[str] = typer.Option(None, "--callback-time",
+                                                help='For outcome 3: "YYYY-MM-DD HH:MM" (local time).'),
+    notes: str = typer.Option("", "--notes", help="Call notes."),
+) -> None:
+    """Phase 5c — log a cold-call outcome: moves the deal, sets properties, creates tasks."""
+    cfg = _cfg(ctx)
+    if not cfg.secrets.hubspot_api_key:
+        typer.echo("HUBSPOT_API_KEY not set in .env"); raise typer.Exit(code=2)
+    from .export.hubspot_client import HubspotClient
+    from .export.hubspot_workflow import get_stage_map, process_call_outcome
+
+    hc = HubspotClient(token=cfg.secrets.hubspot_api_key)
+    try:
+        if not deal_id:
+            # convenience: list open deals so the caller can pick one
+            pid, stage_map = get_stage_map(hc)
+            by_id = {v: k for k, v in stage_map.items()}
+            deals = hc.search_all(
+                "deals", [{"propertyName": "pipeline", "operator": "EQ", "value": pid}],
+                ["dealname", "dealstage", "call_attempt_count"])
+            typer.echo(f"open deals in '{pid}' (pass --deal-id to log an outcome):")
+            shown = 0
+            for d in deals:
+                pr = d.get("properties", {})
+                stage = by_id.get(pr.get("dealstage"), pr.get("dealstage"))
+                if stage and str(stage).startswith(("Won", "Dead")):
+                    continue
+                typer.echo(f"  {d['id']:>14}  {stage:<22} calls={pr.get('call_attempt_count') or 0:<3} "
+                           f"{pr.get('dealname', '')[:52]}")
+                shown += 1
+                if shown >= 30:
+                    typer.echo(f"  … and more ({len(deals)} total)")
+                    break
+            return
+        if outcome is None:
+            typer.echo("--outcome 1-5 is required with --deal-id"); raise typer.Exit(code=2)
+
+        cb = None
+        if callback_time:
+            from datetime import datetime as _dt
+            cb = _dt.strptime(callback_time, "%Y-%m-%d %H:%M")   # local time
+
+        # resolve the deal's primary contact for task association
+        contact_id = None
+        status, assoc = hc._request("GET", f"/crm/v4/objects/deals/{deal_id}/associations/contacts")
+        if status == 200 and assoc.get("results"):
+            contact_id = str(assoc["results"][0].get("toObjectId"))
+
+        r = process_call_outcome(hc, deal_id, outcome, contact_id=contact_id,
+                                 callback_time=cb, call_notes=notes)
+        typer.echo(f"✓ {r['company']}: {r['outcome']} (call #{r['call_attempt_count']}) → stage '{r['stage']}'")
+        for a in r["actions"]:
+            typer.echo(f"    → {a}")
+        if r["tasks_created"]:
+            typer.echo(f"    tasks created: {len(r['tasks_created'])}")
+    except Exception as e:  # noqa: BLE001
+        typer.echo(f"hubspot-call-outcome failed: {e}"); raise typer.Exit(code=1)
 
 
 @app.command("hubspot-pull")
@@ -350,7 +433,7 @@ def hubspot_pull(
         typer.echo("HUBSPOT_API_KEY not set in .env"); raise typer.Exit(code=2)
     store = open_store(cfg)
     try:
-        from .export.hubspot import run_hubspot_pull
+        from .export.hubspot_sync import run_hubspot_pull
 
         s = run_hubspot_pull(cfg, store, dry_run=dry_run)
         prefix = "[dry-run] would pull" if dry_run else "✓ pulled"

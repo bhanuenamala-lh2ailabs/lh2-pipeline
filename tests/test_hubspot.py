@@ -8,6 +8,7 @@ from lh2_pipeline.export.hubspot import (
     CALL_FEEDBACK_PROPERTIES,
     COMPANY_PROPERTIES,
     CONTACT_PROPERTIES,
+    DEAL_PROPERTIES,
     HubspotClient,
     _split_name,
     run_hubspot_setup,
@@ -15,6 +16,16 @@ from lh2_pipeline.export.hubspot import (
 )
 
 _N_CONTACT_PROPS = len(CONTACT_PROPERTIES) + len(CALL_FEEDBACK_PROPERTIES)
+
+# Fake pipeline the sync/workflow tests resolve stage ids from.
+FAKE_PIPELINE = {"results": [{"id": "pipe1", "label": "Codebase Acquisition", "stages": [
+    {"id": "s-new", "label": "New Lead"},
+    {"id": "s-attempted", "label": "Call Attempted"},
+    {"id": "s-m1v1", "label": "M1V1 Sent"},
+    {"id": "s-m1v2", "label": "M1V2 Sent"},
+    {"id": "s-dead-rej", "label": "Dead - Rejected"},
+    {"id": "s-dead-nr", "label": "Dead - No Response"},
+]}]}
 from lh2_pipeline.models import Company, Person
 from lh2_pipeline.store import Store
 
@@ -52,9 +63,14 @@ def test_setup_creates_all_when_absent():
     r = run_hubspot_setup(FakeCfg(), client=HubspotClient(responder=responder))
     assert len(r["company_props"]) == len(COMPANY_PROPERTIES)
     assert len(r["contact_props"]) == _N_CONTACT_PROPS
+    assert len(r["deal_props"]) == len(DEAL_PROPERTIES)
     assert r["pipeline"] == "Codebase Acquisition"
+    assert r["pipeline_action"] == "created"
     assert "PIPELINE" in posts
     assert "size_bucket" in posts and "spoc_type" in posts
+    assert "script_status" in posts and "callback_datetime" in posts   # deal props
+    # templates are documented (no API on this tier) — loudly, never silently
+    assert r["templates"] == {"M1V1": "manual", "M1V2": "manual"}
 
 
 def test_setup_is_idempotent_when_present():
@@ -68,9 +84,9 @@ def test_setup_is_idempotent_when_present():
         return 200, {}
 
     r = run_hubspot_setup(FakeCfg(), client=HubspotClient(responder=responder))
-    assert r["company_props"] == [] and r["contact_props"] == []
+    assert r["company_props"] == [] and r["contact_props"] == [] and r["deal_props"] == []
     assert r["pipeline"] is None
-    assert len(r["skipped"]) == len(COMPANY_PROPERTIES) + _N_CONTACT_PROPS + 1
+    assert len(r["skipped"]) == len(COMPANY_PROPERTIES) + _N_CONTACT_PROPS + len(DEAL_PROPERTIES) + 1
 
 
 # --------------------------------------------------------------------------- #
@@ -98,7 +114,9 @@ def test_sync_pushes_only_qualified_with_upsert_keys(tmp_path):
     calls = []
 
     def responder(method, path, json):
-        calls.append((path, json))
+        calls.append((method, path, json))
+        if path == "/crm/v3/pipelines/deals":
+            return 200, FAKE_PIPELINE
         if path.endswith("/companies/batch/upsert"):
             return 200, {"results": [{"id": f"co{i}",
                                      "properties": {"lh2_domain": inp["id"]}}
@@ -106,15 +124,22 @@ def test_sync_pushes_only_qualified_with_upsert_keys(tmp_path):
         if path.endswith("/contacts/batch/upsert"):
             return 200, {"results": [{"id": f"ct{i}", "properties": {"email": inp["id"]}}
                                      for i, inp in enumerate(json["inputs"])]}
+        if path.endswith("/deals/search"):
+            return 200, {"results": []}          # no deals yet → create
+        if path.endswith("/deals/batch/create"):
+            return 201, {"results": [{"id": f"dl{i}",
+                                     "properties": {"lh2_domain": inp["properties"]["lh2_domain"]}}
+                                     for i, inp in enumerate(json["inputs"])]}
         if "associate/default" in path:
             return 201, {}
         return 200, {}
 
     stats = run_hubspot_sync(FakeCfg(), store, client=HubspotClient(responder=responder))
-    assert stats["companies"] == 1 and stats["contacts"] == 1 and stats["associations"] == 1
+    assert stats["companies"] == 1 and stats["contacts"] == 1
+    assert stats["associations"] == 1 and stats["deals"] == 1
 
     # company upserted by the unique lh2_domain key, with mapped custom props
-    co_call = next(j for p, j in calls if p.endswith("/companies/batch/upsert"))
+    co_call = next(j for m, p, j in calls if p.endswith("/companies/batch/upsert"))
     ci = co_call["inputs"][0]
     assert ci["idProperty"] == "lh2_domain" and ci["id"] == "acme.com"
     assert ci["properties"]["lh2_domain"] == "acme.com"
@@ -123,15 +148,55 @@ def test_sync_pushes_only_qualified_with_upsert_keys(tmp_path):
     assert ci["properties"]["pipeline_source"] == "TEST-SRC"
 
     # contact upsert keyed on email, name split, spoc_type Primary
-    ct_call = next(j for p, j in calls if p.endswith("/contacts/batch/upsert"))
+    ct_call = next(j for m, p, j in calls if p.endswith("/contacts/batch/upsert"))
     cti = ct_call["inputs"][0]
     assert cti["idProperty"] == "email" and cti["id"] == "asha@acme.com"
     assert cti["properties"]["firstname"] == "Asha" and cti["properties"]["lastname"] == "Rao"
     assert cti["properties"]["spoc_type"] == "Primary"
 
-    # association pairs contact ct0 -> company co0
-    assoc = next(j for p, j in calls if "associate/default" in p)
-    assert assoc["inputs"] == [{"from": {"id": "ct0"}, "to": {"id": "co0"}}]
+    # deal created at "New Lead" (stage ID not label) with the spec's defaults
+    dl_call = next(j for m, p, j in calls if p.endswith("/deals/batch/create"))
+    dli = dl_call["inputs"][0]["properties"]
+    assert dli["dealname"] == "Acme Labs - Codebase Acquisition"
+    assert dli["pipeline"] == "pipe1" and dli["dealstage"] == "s-new"
+    assert dli["lead_source"] == "LH2 Pipeline"
+    assert dli["email_version_sent"] == "None"
+    assert dli["call_attempt_count"] == 0 and dli["script_status"] == "Not Started"
+
+    # associations: contact→company, deal→company, deal→contact
+    assoc_paths = [p for m, p, j in calls if "associate/default" in p]
+    assert any("contacts/companies" in p for p in assoc_paths)
+    assert any("deals/companies" in p for p in assoc_paths)
+    assert any("deals/contacts" in p for p in assoc_paths)
+    store.close()
+
+
+def test_sync_skips_existing_deals_and_never_updates_them(tmp_path):
+    """A firm that already has a deal gets NO deal write at all — the deal's
+    stage belongs to sales and must never be dragged back to New Lead."""
+    store = Store(tmp_path / "h3.sqlite"); store.init_db()
+    _seed(store)
+    deal_writes = []
+
+    def responder(method, path, json):
+        if path == "/crm/v3/pipelines/deals":
+            return 200, FAKE_PIPELINE
+        if path.endswith("/companies/batch/upsert"):
+            return 200, {"results": [{"id": "co0", "properties": {"lh2_domain": "acme.com"}}]}
+        if path.endswith("/contacts/batch/upsert"):
+            return 200, {"results": [{"id": "ct0", "properties": {"email": "asha@acme.com"}}]}
+        if path.endswith("/deals/search"):
+            return 200, {"results": [{"id": "dl-existing", "properties": {"lh2_domain": "acme.com"}}]}
+        if "/deals/" in path and method in ("POST", "PATCH") and "search" not in path:
+            deal_writes.append(path)
+            return 201, {"results": []}
+        if "associate/default" in path:
+            return 201, {}
+        return 200, {}
+
+    stats = run_hubspot_sync(FakeCfg(), store, client=HubspotClient(responder=responder))
+    assert stats["deals"] == 0
+    assert deal_writes == []                 # existing deal untouched
     store.close()
 
 

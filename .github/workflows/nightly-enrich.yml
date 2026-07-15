@@ -77,6 +77,13 @@ jobs:
           GOOGLE_SHEETS_KEY: ${{ secrets.GOOGLE_SHEETS_KEY }}
         run: lh2 sync
 
+      - name: Sync to HubSpot
+        # Companies + Contacts upserted (unique keys); Deals created at "New Lead"
+        # only for firms that don't have one yet (existing deals never touched).
+        env:
+          HUBSPOT_API_KEY: ${{ secrets.HUBSPOT_API_KEY }}
+        run: lh2 hubspot-sync
+
       - name: Save pipeline database
         if: always()
         uses: actions/cache/save@v4

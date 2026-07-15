@@ -1,438 +1,52 @@
-"""Phase 5c — HubSpot CRM sync.
+"""Backward-compat shim — the HubSpot integration now lives in focused modules
+(scalingPlanV2 §Architecture):
 
-Two entry points, both driven by a HubSpot **private-app token** (HUBSPOT_API_KEY):
+  * hubspot_client.py   — shared HTTP client (auth, retries, rate limiting)
+  * hubspot_setup.py    — properties, deal pipeline, email templates
+  * hubspot_sync.py     — nightly Company+Contact+Deal upsert + feedback pull
+  * hubspot_workflow.py — call outcomes, tasks, stage transitions
 
-  * ``run_hubspot_setup`` — idempotently create the custom Company/Contact
-    properties and the "Codebase Acquisition" deal pipeline via the HubSpot API,
-    so nothing has to be clicked in the UI. Existing props/pipeline are skipped.
-  * ``run_hubspot_sync`` — push Qualified leads: batch-**upsert** Companies (keyed
-    on ``domain``) + primary-founder Contacts (keyed on ``email``), then associate
-    each contact to its company. Upsert + natural keys → re-runs never duplicate.
-
-Never fabricates: only non-empty values are sent. HTTP is injectable
-(``responder(method, path, json) -> (status, dict)``) so tests run fully offline.
+Import from those directly in new code; this module just re-exports.
 """
 
-from __future__ import annotations
-
-import time
-from typing import Callable, Optional
-
-from ..logging_setup import get_logger
-from ..models import utcnow
-
-log = get_logger("lh2.hubspot")
-
-BASE_URL = "https://api.hubapi.com"
-Responder = Callable[[str, str, Optional[dict]], "tuple[int, dict]"]
-
-
-# --------------------------------------------------------------------------- #
-# Schema to create (idempotent)
-# --------------------------------------------------------------------------- #
-def _enum(options: list[str]) -> list[dict]:
-    return [{"label": o, "value": o, "displayOrder": i} for i, o in enumerate(options)]
-
-
-COMPANY_PROPERTIES = [
-    # Unique-value key for true idempotent upsert (HubSpot's standard `domain`
-    # isn't a unique-value property, and search-based dedup races its index lag).
-    {"name": "lh2_domain", "label": "LH2 Domain (unique key)", "type": "string",
-     "fieldType": "text", "hasUniqueValue": True},
-    {"name": "founded_year", "label": "Founded Year", "type": "number", "fieldType": "number"},
-    {"name": "size_bucket", "label": "Size Bucket", "type": "enumeration", "fieldType": "select",
-     "options": _enum(["1-100", "100-500", "500-1000"])},
-    {"name": "headcount_source", "label": "Headcount Source", "type": "string", "fieldType": "text"},
-    {"name": "segment", "label": "Segment", "type": "string", "fieldType": "text"},
-    {"name": "pipeline_source", "label": "Pipeline Source", "type": "string", "fieldType": "text"},
-    {"name": "pipeline_notes", "label": "Pipeline Notes", "type": "string", "fieldType": "textarea"},
-    {"name": "pipeline_synced_at", "label": "Pipeline Synced At", "type": "date", "fieldType": "date"},
-]
-CONTACT_PROPERTIES = [
-    {"name": "linkedin_url", "label": "LinkedIn URL", "type": "string", "fieldType": "text"},
-    {"name": "contact_role", "label": "Contact Role", "type": "string", "fieldType": "text"},
-    {"name": "spoc_type", "label": "SPOC Type", "type": "enumeration", "fieldType": "select",
-     "options": _enum(["Primary", "Secondary"])},
-]
-
-# Caller fills these after each call → `lh2 hubspot-pull` reads them back into the
-# pipeline so real outcomes can refine targeting/scoring (the feedback loop).
-CALL_OUTCOMES = [
-    "Not Called", "Connected", "No Answer", "Left Voicemail", "Interested",
-    "Not Interested", "Callback Requested", "Wrong Contact", "Do Not Contact",
-]
-CALL_FEEDBACK_PROPERTIES = [
-    {"name": "call_outcome", "label": "Call Outcome", "type": "enumeration",
-     "fieldType": "select", "options": _enum(CALL_OUTCOMES)},
-    {"name": "call_notes", "label": "Call Notes", "type": "string", "fieldType": "textarea"},
-    {"name": "call_date", "label": "Call Date", "type": "date", "fieldType": "date"},
-    {"name": "next_step", "label": "Next Step", "type": "string", "fieldType": "text"},
-]
-COMPANY_GROUP = "companyinformation"      # standard HubSpot property group
-CONTACT_GROUP = "contactinformation"
-
-PIPELINE_NAME = "Codebase Acquisition"
-# stage -> win probability (1.0 = closed-won, 0.0 = closed-lost, per HubSpot convention)
-PIPELINE_STAGES = [
-    ("New Lead", 0.1), ("Contacted", 0.2), ("Replied", 0.3), ("Discovery Call", 0.4),
-    ("Interested", 0.5), ("Offer Sent", 0.7), ("Negotiating", 0.85),
-    ("Won", 1.0), ("Lost", 0.0),
-]
-
-
-# --------------------------------------------------------------------------- #
-# Client
-# --------------------------------------------------------------------------- #
-class HubspotError(Exception):
-    pass
-
-
-class HubspotClient:
-    def __init__(self, token: Optional[str] = None, responder: Optional[Responder] = None,
-                 timeout_s: int = 40, max_retries: int = 4):
-        self.token = token
-        self._responder = responder
-        self.timeout_s = timeout_s
-        self.max_retries = max_retries
-        self.calls = 0
-
-    def _request(self, method: str, path: str, json: Optional[dict] = None) -> tuple[int, dict]:
-        self.calls += 1
-        if self._responder is not None:
-            return self._responder(method, path, json)
-        if not self.token:
-            raise RuntimeError("HUBSPOT_API_KEY is not set")
-        import httpx
-
-        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
-        url = BASE_URL + path
-        last_exc: Optional[Exception] = None
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                with httpx.Client(timeout=self.timeout_s) as client:
-                    r = client.request(method, url, json=json, headers=headers)
-            except (httpx.TimeoutException, httpx.TransportError) as e:
-                last_exc = e
-                time.sleep(min(10.0, 2 ** attempt))
-                continue
-            if r.status_code == 429 or r.status_code >= 500:
-                # rate-limited / server error → honor Retry-After then retry
-                wait = float(r.headers.get("Retry-After", min(10.0, 2 ** attempt)))
-                log.info("hubspot_retry", status=r.status_code, attempt=attempt, wait=wait)
-                time.sleep(wait)
-                continue
-            body = r.json() if r.content else {}
-            return r.status_code, body
-        raise HubspotError(f"hubspot request failed after retries: {method} {path}: {last_exc}")
-
-    # -- properties / pipeline (setup) ------------------------------------- #
-    def property_exists(self, object_type: str, name: str) -> bool:
-        status, _ = self._request("GET", f"/crm/v3/properties/{object_type}/{name}")
-        return status == 200
-
-    def create_property(self, object_type: str, spec: dict, group: str) -> None:
-        body = {"name": spec["name"], "label": spec["label"], "type": spec["type"],
-                "fieldType": spec["fieldType"], "groupName": group}
-        if "options" in spec:
-            body["options"] = spec["options"]
-        if spec.get("hasUniqueValue"):
-            body["hasUniqueValue"] = True
-        status, resp = self._request("POST", f"/crm/v3/properties/{object_type}", body)
-        # HubSpot requires unique property LABELS across an object; a standard prop
-        # (e.g. hs_linkedin_url labelled "LinkedIn URL") can collide. The property
-        # NAME is what our sync writes to, so just retry with a suffixed label.
-        if status == 400 and "NON_UNIQUE_PROPERTY_LABEL" in str(resp):
-            body["label"] = f"{spec['label']} (LH2)"
-            status, resp = self._request("POST", f"/crm/v3/properties/{object_type}", body)
-        if status not in (200, 201):
-            raise HubspotError(f"create property {object_type}.{spec['name']} failed: {status} {resp}")
-
-    def pipeline_exists(self, label: str) -> bool:
-        status, resp = self._request("GET", "/crm/v3/pipelines/deals")
-        if status != 200:
-            raise HubspotError(f"list pipelines failed: {status} {resp}")
-        return any(p.get("label") == label for p in resp.get("results", []))
-
-    def create_deal_pipeline(self, label: str, stages: list[tuple]) -> None:
-        body = {
-            "label": label,
-            "displayOrder": 0,
-            "stages": [
-                {"label": name, "displayOrder": i, "metadata": {"probability": str(prob)}}
-                for i, (name, prob) in enumerate(stages)
-            ],
-        }
-        status, resp = self._request("POST", "/crm/v3/pipelines/deals", body)
-        if status not in (200, 201):
-            raise HubspotError(f"create pipeline failed: {status} {resp}")
-
-    # -- objects (sync) ---------------------------------------------------- #
-    def batch_upsert(self, object_type: str, inputs: list[dict]) -> list[dict]:
-        """Upsert up to 100 objects via idProperty; returns the result objects
-        (each with HubSpot ``id`` + echoed ``properties``)."""
-        results: list[dict] = []
-        for chunk in _chunks(inputs, 100):
-            status, resp = self._request(
-                "POST", f"/crm/v3/objects/{object_type}/batch/upsert", {"inputs": chunk})
-            if status not in (200, 201, 207):
-                raise HubspotError(f"batch upsert {object_type} failed: {status} {resp}")
-            results.extend(resp.get("results", []))
-        return results
-
-    def search_ids(self, object_type: str, prop: str, values: list[str]) -> dict:
-        """Return {property_value(lower): hubspot_id} for existing objects whose
-        ``prop`` is IN ``values``. Used when a property isn't a unique-value key
-        (e.g. company ``domain``) so we can't upsert by it directly."""
-        found: dict[str, str] = {}
-        for chunk in _chunks([v for v in values if v], 100):
-            status, resp = self._request("POST", f"/crm/v3/objects/{object_type}/search", {
-                "filterGroups": [{"filters": [{"propertyName": prop, "operator": "IN", "values": chunk}]}],
-                "properties": [prop], "limit": 100})
-            if status != 200:
-                raise HubspotError(f"search {object_type}.{prop} failed: {status} {resp}")
-            for r in resp.get("results", []):
-                v = r.get("properties", {}).get(prop)
-                if v and r.get("id"):
-                    found[str(v).lower()] = r["id"]
-        return found
-
-    def search_all(self, object_type: str, filters: list[dict], properties: list[str]) -> list[dict]:
-        """Return every object matching ``filters`` (paginated), with ``properties``."""
-        out: list[dict] = []
-        after = None
-        while True:
-            body = {"filterGroups": [{"filters": filters}], "properties": properties, "limit": 100}
-            if after:
-                body["after"] = after
-            status, resp = self._request("POST", f"/crm/v3/objects/{object_type}/search", body)
-            if status != 200:
-                raise HubspotError(f"search {object_type} failed: {status} {resp}")
-            out.extend(resp.get("results", []))
-            after = resp.get("paging", {}).get("next", {}).get("after")
-            if not after:
-                break
-        return out
-
-    def batch_create(self, object_type: str, inputs: list[dict]) -> list[dict]:
-        results: list[dict] = []
-        for chunk in _chunks(inputs, 100):
-            status, resp = self._request(
-                "POST", f"/crm/v3/objects/{object_type}/batch/create", {"inputs": chunk})
-            if status not in (200, 201, 207):
-                raise HubspotError(f"batch create {object_type} failed: {status} {resp}")
-            results.extend(resp.get("results", []))
-        return results
-
-    def batch_update(self, object_type: str, inputs: list[dict]) -> list[dict]:
-        results: list[dict] = []
-        for chunk in _chunks(inputs, 100):
-            status, resp = self._request(
-                "POST", f"/crm/v3/objects/{object_type}/batch/update", {"inputs": chunk})
-            if status not in (200, 201, 207):
-                raise HubspotError(f"batch update {object_type} failed: {status} {resp}")
-            results.extend(resp.get("results", []))
-        return results
-
-    def associate_default(self, from_type: str, to_type: str, pairs: list[tuple]) -> None:
-        """Create default (primary) associations for (from_id, to_id) pairs."""
-        for chunk in _chunks(pairs, 100):
-            inputs = [{"from": {"id": str(f)}, "to": {"id": str(t)}} for f, t in chunk]
-            status, resp = self._request(
-                "POST",
-                f"/crm/v4/associations/{from_type}/{to_type}/batch/associate/default",
-                {"inputs": inputs})
-            if status not in (200, 201, 207):
-                raise HubspotError(f"associate {from_type}->{to_type} failed: {status} {resp}")
-
-
-def _chunks(seq: list, n: int):
-    for i in range(0, len(seq), n):
-        yield seq[i:i + n]
-
-
-# --------------------------------------------------------------------------- #
-# Setup — create properties + pipeline idempotently
-# --------------------------------------------------------------------------- #
-def run_hubspot_setup(cfg, store=None, client: Optional[HubspotClient] = None,  # noqa: ANN001
-                      dry_run: bool = False) -> dict:
-    hc = client or HubspotClient(token=cfg.secrets.hubspot_api_key)
-    created = {"company_props": [], "contact_props": [], "pipeline": None,
-               "skipped": []}
-
-    for obj, props, group in (("companies", COMPANY_PROPERTIES, COMPANY_GROUP),
-                              ("contacts", CONTACT_PROPERTIES + CALL_FEEDBACK_PROPERTIES, CONTACT_GROUP)):
-        key = "company_props" if obj == "companies" else "contact_props"
-        for spec in props:
-            if hc.property_exists(obj, spec["name"]):
-                created["skipped"].append(f"{obj}.{spec['name']}")
-                continue
-            if not dry_run:
-                hc.create_property(obj, spec, group)
-            created[key].append(spec["name"])
-
-    if hc.pipeline_exists(PIPELINE_NAME):
-        created["skipped"].append(f"pipeline:{PIPELINE_NAME}")
-    elif not dry_run:
-        try:
-            hc.create_deal_pipeline(PIPELINE_NAME, PIPELINE_STAGES)
-            created["pipeline"] = PIPELINE_NAME
-        except HubspotError as e:
-            # e.g. free/starter tier caps deal pipelines at 1. Non-fatal: the
-            # sync pushes companies+contacts (no deals yet), so properties are
-            # what matter. Deals can use the existing default pipeline / upgrade.
-            created["pipeline_error"] = str(e)
-            log.info("hubspot_pipeline_skipped", err=str(e))
-    else:
-        created["pipeline"] = PIPELINE_NAME
-
-    log.info("hubspot_setup", created_company=len(created["company_props"]),
-             created_contact=len(created["contact_props"]),
-             pipeline=created["pipeline"], skipped=len(created["skipped"]))
-    return created
-
-
-# --------------------------------------------------------------------------- #
-# Sync — push Qualified leads (companies + primary contacts + associations)
-# --------------------------------------------------------------------------- #
-def _split_name(full: str) -> tuple[str, str]:
-    parts = (full or "").strip().split()
-    if not parts:
-        return "", ""
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], " ".join(parts[1:])
-
-
-def _is_qualified(people) -> bool:  # noqa: ANN001
-    if not people:
-        return False
-    p = people[0]
-    return bool(p.name and p.name != "(verify)" and p.linkedin_url and p.phone and p.email)
-
-
-def _company_props(co, source_label: str, synced_at: str) -> dict:  # noqa: ANN001
-    props = {
-        "name": co.company_name,
-        "domain": co.domain,
-        "lh2_domain": co.domain,          # unique-value key for idempotent upsert
-        "city": co.city,
-        "country": co.hq_country,
-        "founded_year": co.founded_year,
-        "size_bucket": co.size_bucket,
-        "segment": co.segment,
-        "pipeline_source": source_label,
-        "pipeline_synced_at": synced_at,
-    }
-    return {k: v for k, v in props.items() if v not in (None, "")}
-
-
-def _contact_props(person) -> dict:  # noqa: ANN001
-    first, last = _split_name(person.name)
-    props = {
-        "email": person.email,
-        "firstname": first,
-        "lastname": last,
-        "phone": person.phone,
-        "linkedin_url": person.linkedin_url,
-        "contact_role": person.role,
-        "spoc_type": "Primary",
-    }
-    return {k: v for k, v in props.items() if v not in (None, "")}
-
-
-def run_hubspot_sync(cfg, store, client: Optional[HubspotClient] = None,  # noqa: ANN001
-                     limit: Optional[int] = None, dry_run: bool = False) -> dict:
-    hc = client or HubspotClient(token=cfg.secrets.hubspot_api_key)
-    synced_at = utcnow().strftime("%Y-%m-%d")
-    source_label = getattr(cfg.hubspot, "pipeline_source", "LH2 pipeline")
-
-    company_inputs: list[dict] = []
-    contact_inputs: list[dict] = []
-    # remember which contact email belongs to which company domain (for association)
-    email_to_domain: dict[str, str] = {}
-
-    for co in store.iter_companies(gate_pass=True):
-        people = store.people_for(co.domain)
-        if not _is_qualified(people):
-            continue
-        primary = people[0]
-        company_inputs.append({"idProperty": "lh2_domain", "id": co.domain,
-                               "properties": _company_props(co, source_label, synced_at)})
-        contact_inputs.append({"idProperty": "email", "id": primary.email,
-                               "properties": _contact_props(primary)})
-        email_to_domain[primary.email.strip().lower()] = co.domain
-        if limit and len(company_inputs) >= limit:
-            break
-
-    stats = {"companies": len(company_inputs), "contacts": len(contact_inputs),
-             "associations": 0, "dry_run": dry_run}
-    if dry_run or not company_inputs:
-        log.info("hubspot_sync_preview", **stats)
-        return stats
-
-    # 1) Upsert companies (by the unique lh2_domain key) + contacts (by email).
-    # Both keys are HubSpot unique-value properties → atomic, no search, no
-    # index-lag races → truly idempotent on back-to-back runs.
-    co_results = hc.batch_upsert("companies", company_inputs)
-    ct_results = hc.batch_upsert("contacts", contact_inputs)
-    domain_to_cid = {str(r.get("properties", {}).get("lh2_domain", "")).lower(): r["id"]
-                     for r in co_results if r.get("id")}
-    email_to_ctid = {str(r.get("properties", {}).get("email", "")).lower(): r["id"]
-                     for r in ct_results if r.get("id")}
-
-    # 2) associate each contact to its company (default/primary association)
-    pairs: list[tuple] = []
-    for email, domain in email_to_domain.items():
-        cid = domain_to_cid.get(domain.lower())
-        ctid = email_to_ctid.get(email)
-        if cid and ctid:
-            pairs.append((ctid, cid))
-    if pairs:
-        hc.associate_default("contacts", "companies", pairs)
-    stats["associations"] = len(pairs)
-    stats["hubspot_calls"] = hc.calls
-
-    log.info("hubspot_sync", **stats)
-    return stats
-
-
-# --------------------------------------------------------------------------- #
-# Pull — read caller call-feedback back into the pipeline (the feedback loop)
-# --------------------------------------------------------------------------- #
-_FEEDBACK_PROPS = ["email", "call_outcome", "call_notes", "call_date", "next_step"]
-
-
-def run_hubspot_pull(cfg, store, client: Optional[HubspotClient] = None,  # noqa: ANN001
-                     dry_run: bool = False) -> dict:
-    """Read call-feedback (outcome/notes/date/next-step) that callers filled on our
-    HubSpot contacts back into the local ``crm_feedback`` table, keyed to the
-    company domain — so downstream targeting/scoring can use real call results."""
-    from collections import Counter
-
-    hc = client or HubspotClient(token=cfg.secrets.hubspot_api_key)
-    email_to_domain = store.email_domain_map()
-
-    contacts = hc.search_all(
-        "contacts",
-        [{"propertyName": "spoc_type", "operator": "EQ", "value": "Primary"}],
-        _FEEDBACK_PROPS)
-
-    pulled = 0
-    outcomes: Counter = Counter()
-    for c in contacts:
-        pr = c.get("properties", {}) or {}
-        outcome, notes, nxt = pr.get("call_outcome"), pr.get("call_notes"), pr.get("next_step")
-        # only rows a caller actually touched (ignore the default "Not Called"/empty)
-        if not (notes or nxt or (outcome and outcome != "Not Called")):
-            continue
-        email = (pr.get("email") or "").strip().lower()
-        domain = email_to_domain.get(email)
-        if not dry_run:
-            store.upsert_feedback(domain, email, outcome, notes, pr.get("call_date"), nxt)
-        pulled += 1
-        outcomes[outcome or "(notes only)"] += 1
-
-    stats = {"contacts_scanned": len(contacts), "feedback_pulled": pulled,
-             "outcomes": dict(outcomes), "dry_run": dry_run}
-    log.info("hubspot_pull", **{k: v for k, v in stats.items() if k != "outcomes"})
-    return stats
+from .hubspot_client import (  # noqa: F401
+    BASE_URL,
+    HubspotClient,
+    HubspotError,
+    Responder,
+    _chunks,
+)
+from .hubspot_setup import (  # noqa: F401
+    CALL_FEEDBACK_PROPERTIES,
+    CALL_OUTCOMES,
+    COMPANY_GROUP,
+    COMPANY_PROPERTIES,
+    CONTACT_GROUP,
+    CONTACT_PROPERTIES,
+    DEAL_GROUP,
+    DEAL_PROPERTIES,
+    EMAIL_TEMPLATES,
+    PIPELINE_NAME,
+    PIPELINE_STAGES,
+    run_hubspot_setup,
+    templates_markdown,
+)
+from .hubspot_sync import (  # noqa: F401
+    _company_props,
+    _contact_props,
+    _is_qualified,
+    _split_name,
+    run_hubspot_pull,
+    run_hubspot_sync,
+)
+from .hubspot_workflow import (  # noqa: F401
+    create_call_again_task,
+    create_callback_task,
+    create_followup_no_booking_task,
+    create_number_lookup_task,
+    create_results_followup_task,
+    create_task,
+    move_deal_to_stage,
+    next_business_day,
+    process_call_outcome,
+)
