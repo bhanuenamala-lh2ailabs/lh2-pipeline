@@ -1,9 +1,12 @@
 name: Nightly Enrich + Sync
 
 on:
-  schedule:
-    - cron: "30 18 * * *"   # 18:30 UTC = 00:00 IST
-  workflow_dispatch: {}      # manual "Run workflow" button
+  # PAUSED (2026-07-15): pilot runs are driven LOCALLY until the trial ends —
+  # a scheduled CI run would double-spend SignalHire credits against a separate
+  # cached DB. Re-enable by uncommenting the schedule (and seed the CI DB cache).
+  # schedule:
+  #   - cron: "30 18 * * *"   # 18:30 UTC = 00:00 IST
+  workflow_dispatch: {}      # manual "Run workflow" button only
 
 jobs:
   enrich-and-sync:
