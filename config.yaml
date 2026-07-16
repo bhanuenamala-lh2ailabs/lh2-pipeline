@@ -244,7 +244,7 @@ hubspot:
 # emailed yet. Sent over SMTP from the owner's mailbox (SMTP_USER/SMTP_PASSWORD
 # in .env); the deal's stage is the trigger, so you just move it in HubSpot.
 outreach:
-  enabled: true
+  enabled: false   # native HubSpot 'Connect inbox' used instead; flip true only for pipeline batch-send
   smtp_host: "smtp.gmail.com"       # Gmail/Workspace: smtp.gmail.com:587 + an App Password
   smtp_port: 587
   from_name: ""                     # your first name → shown as {{owner.first_name}}
