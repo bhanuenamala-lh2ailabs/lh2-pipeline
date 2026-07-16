@@ -357,6 +357,39 @@ def hubspot_sync(
         store.close()
 
 
+@app.command("hubspot-send-emails")
+def hubspot_send_emails(
+    ctx: typer.Context,
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap emails sent this run."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview who would be emailed; send nothing."),
+) -> None:
+    """Phase 5d — auto-send M1V1/M1V2 to deals sitting in those stages (trigger = deal stage)."""
+    cfg = _cfg(ctx)
+    if not cfg.outreach.enabled:
+        typer.echo("outreach disabled (set outreach.enabled: true in config.yaml)"); return
+    if not cfg.secrets.hubspot_api_key:
+        typer.echo("HUBSPOT_API_KEY not set in .env"); raise typer.Exit(code=2)
+    store = open_store(cfg)
+    try:
+        from .export.hubspot_emails import run_send_emails
+
+        s = run_send_emails(cfg, store, dry_run=dry_run, limit=limit)
+        if dry_run:
+            typer.echo(f"hubspot-send-emails [dry-run]: {s['would_send']} would send "
+                       f"({s['skipped_already_sent']} already sent, {s['skipped_no_contact']} no contact)")
+            for p in s["preview"]:
+                typer.echo(f"    {p['version']} → {p['to']}  ({p['company']})  “{p['subject']}”")
+        else:
+            typer.echo(f"hubspot-send-emails: ✓ sent {s['sent']} "
+                       f"({s['skipped_already_sent']} already sent, {s['skipped_no_contact']} no contact)")
+    except RuntimeError as e:
+        typer.echo(f"hubspot-send-emails prerequisite missing: {e}"); raise typer.Exit(code=2)
+    except Exception as e:  # noqa: BLE001
+        typer.echo(f"hubspot-send-emails failed: {e}"); raise typer.Exit(code=1)
+    finally:
+        store.close()
+
+
 @app.command("hubspot-call-outcome")
 def hubspot_call_outcome(
     ctx: typer.Context,

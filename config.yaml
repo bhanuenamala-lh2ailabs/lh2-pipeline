@@ -239,6 +239,18 @@ hubspot:
   enabled: true
   pipeline_source: "LH2 pipeline"   # written to the Company 'pipeline_source' property
 
+# Automated outreach (Phase 5d): `lh2 hubspot-send-emails` sends the M1V1/M1V2
+# template to deals in the "M1V1 Sent"/"M1V2 Sent" stages that haven't been
+# emailed yet. Sent over SMTP from the owner's mailbox (SMTP_USER/SMTP_PASSWORD
+# in .env); the deal's stage is the trigger, so you just move it in HubSpot.
+outreach:
+  enabled: true
+  smtp_host: "smtp.gmail.com"       # Gmail/Workspace: smtp.gmail.com:587 + an App Password
+  smtp_port: 587
+  from_name: ""                     # your first name → shown as {{owner.first_name}}
+  from_email: ""                    # blank = use SMTP_USER
+  calendly_link: ""                 # your Calendly URL → replaces [CALENDLY_LINK]
+
 export:
   schema_version: 1
   google_search_resolver: "https://www.google.com/search?q={query}"

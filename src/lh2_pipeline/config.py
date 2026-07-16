@@ -177,6 +177,18 @@ class HubspotConfig(BaseModel):
     pipeline_source: str = "LH2 pipeline"       # value written to the Company 'pipeline_source' prop
 
 
+class OutreachConfig(BaseModel):
+    """Automated M1V1/M1V2 email send (Phase 5d). Triggered by a deal's HubSpot
+    stage; sent over SMTP from the owner's mailbox. Credentials (SMTP_USER /
+    SMTP_PASSWORD) come from .env; the sender's address defaults to SMTP_USER."""
+    enabled: bool = False
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    from_name: str = ""                          # e.g. "Bhanu" → {{owner.first_name}}
+    from_email: str = ""                         # blank = use SMTP_USER
+    calendly_link: str = ""                      # replaces [CALENDLY_LINK] in the templates
+
+
 class SheetsConfig(BaseModel):
     """Google Sheets auto-sync. credentials_file is a service-account JSON (secret,
     gitignored); the sheet must be shared with that service account as Editor."""
@@ -196,6 +208,8 @@ class Secrets(BaseModel):
     proxycurl_api_key: Optional[str] = None
     coresignal_api_key: Optional[str] = None
     hubspot_api_key: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
 
     def masked(self) -> dict[str, str]:
         def mask(v: Optional[str]) -> str:
@@ -209,6 +223,8 @@ class Secrets(BaseModel):
             "proxycurl_api_key": mask(self.proxycurl_api_key),
             "coresignal_api_key": mask(self.coresignal_api_key),
             "hubspot_api_key": mask(self.hubspot_api_key),
+            "smtp_user": mask(self.smtp_user),
+            "smtp_password": mask(self.smtp_password),
         }
 
 
@@ -222,6 +238,7 @@ class Config(BaseModel):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     sheets: SheetsConfig = Field(default_factory=SheetsConfig)
     hubspot: HubspotConfig = Field(default_factory=HubspotConfig)
+    outreach: OutreachConfig = Field(default_factory=OutreachConfig)
     secrets: Secrets = Field(default_factory=Secrets)
 
     # Absolute project root (dir containing config.yaml). Not serialized to YAML.
@@ -279,6 +296,8 @@ def load_secrets(project_root: Path) -> Secrets:
         proxycurl_api_key=os.getenv("PROXYCURL_API_KEY") or None,
         coresignal_api_key=os.getenv("CORESIGNAL_API_KEY") or None,
         hubspot_api_key=os.getenv("HUBSPOT_API_KEY") or None,
+        smtp_user=os.getenv("SMTP_USER") or None,
+        smtp_password=os.getenv("SMTP_PASSWORD") or None,
     )
 
 
