@@ -91,6 +91,9 @@ DEAL_PROPERTIES = [
     {"name": "calendly_link_sent", "label": "Calendly Link Sent", "type": "enumeration",
      "fieldType": "booleancheckbox", "options": _BOOL_OPTIONS},
     {"name": "gmeet1_date", "label": "GMEET1 Date", "type": "datetime", "fieldType": "date"},
+    # Google Meet link, filled when a deal enters "GMEET1 Scheduled" (Calendly will
+    # auto-populate this once connected; manual paste for now).
+    {"name": "gmeet1_link", "label": "GMEET1 Link", "type": "string", "fieldType": "text"},
     {"name": "gmeet1_outcome", "label": "GMEET1 Outcome", "type": "enumeration", "fieldType": "select",
      "options": _enum(["Script Run On Call", "Client Will Run Later", "Rejected", "No Show"])},
     {"name": "script_status", "label": "Script Status", "type": "enumeration", "fieldType": "select",
