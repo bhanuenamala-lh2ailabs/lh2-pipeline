@@ -194,11 +194,17 @@ def run_hubspot_sync(cfg, store, client: Optional[HubspotClient] = None,  # noqa
                 created_deals.append((did, co.domain, p.email))
     stats["deals"] = len(created_deals)
 
-    # 5) Associate each new deal with its company AND primary contact.
+    # 5) Associate each new deal with its company AND both SPOC contacts, so the
+    # deal card shows the founder + SPOC 2 (SPOC 2 email is unknown, so it's keyed
+    # via the cache written when the contact was created).
     deal_co = [(did, domain_to_cid[dom.lower()]) for did, dom, _ in created_deals
                if dom.lower() in domain_to_cid]
     deal_ct = [(did, email_to_ctid[em.strip().lower()]) for did, _, em in created_deals
                if em and em.strip().lower() in email_to_ctid]
+    for did, dom, _ in created_deals:                    # SPOC 2 → deal (if present)
+        s2 = store.cache_get(f"hubspot:spoc2:{dom}")
+        if s2:
+            deal_ct.append((did, s2))
     if deal_co:
         hc.associate_default("deals", "companies", deal_co)
     if deal_ct:
