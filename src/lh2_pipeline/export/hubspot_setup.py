@@ -101,6 +101,14 @@ DEAL_PROPERTIES = [
     {"name": "lead_source", "label": "Lead Source", "type": "string", "fieldType": "text"},
     {"name": "call_notes", "label": "Call Notes", "type": "string", "fieldType": "textarea"},
     {"name": "call_attempt_count", "label": "Call Attempt Count", "type": "number", "fieldType": "number"},
+    # Point of contact for the deal (who to reach; a teammate fills this in).
+    {"name": "poc", "label": "PoC", "type": "string", "fieldType": "text"},
+    # Deal value as a RANGE (text) — the native `Amount` (relabelled "Deal Value")
+    # stays the single number that powers forecasting; this is the human range.
+    {"name": "deal_value_range", "label": "Deal Value Range", "type": "string", "fieldType": "text"},
+    # Google Drive links captured during the eval.
+    {"name": "script_link", "label": "Script Link", "type": "string", "fieldType": "text"},
+    {"name": "script_output_link", "label": "Script Output Link", "type": "string", "fieldType": "text"},
 ]
 
 

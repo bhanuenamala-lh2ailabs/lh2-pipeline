@@ -88,13 +88,17 @@ Busy and Wrong-Number stay in **Call Attempted** — you loop back and call agai
 
 ### 4c. After the eval call — enter the DEAL VALUE (MUST)
 - Move stage → **GMEET1 Completed**.
-- **MUST: enter the `Amount` (deal value)** on the deal before advancing. No Amount → do not move forward. *(This number is what your forecast is built on and becomes the closed value when Won.)*
+- **MUST: enter the deal value before advancing.** No value → do not move forward.
+  - **Deal Value** (the number field, powers the forecast + becomes closed revenue at Won) — a single expected number.
+  - **Deal Value Range** — the negotiation range as text, e.g. `₹50L – ₹1Cr`.
+- **Share the eval script:** paste its Google Drive link into **Script Link**.
 - Set the **GMEET1 Outcome**:
   - **They run the script on the call (O1):** GMEET1 Outcome = `Script Run On Call`, Script Status = `Running` → stage **Script Running** → task **"Collect script results"** (today).
   - **They'll run it later (O2):** GMEET1 Outcome = `Client Will Run Later`, Script Status = `Sent to Client` → stage **Awaiting Results** → task **"Follow up on script results"** (+2 days).
 
 ### 4d. Results
-- Results in → on the **Company** record, fill **Evaluation Results** + **Results Received Date**; set deal **Script Status = Results Received**.
+- Results in → paste the results **Google Drive link** into **Script Output Link** on the deal.
+- On the **Company** record, fill **Evaluation Results** + **Results Received Date**; set deal **Script Status = Results Received**.
 - Move deal → **Results Received** → **Results Under Review** (handoff).
 
 ### 4e. Closing
@@ -126,8 +130,13 @@ Awaiting Meeting → GMEET1 Scheduled → GMEET1 Completed → Script Running �
 Awaiting Results → Results Received → Results Under Review → **Won** ·
 **Dead - Rejected · Dead - No Response · Dead - Meeting Rejected · Dead - Wrong Fit**
 
+**Deal fields you'll fill (open the deal → Actions ▸ View all properties, or the pinned card):**
+Call Outcome · **PoC** (who to reach for this deal) · **Deal Value** (number, for forecast) ·
+**Deal Value Range** (text, e.g. ₹50L–₹1Cr) · GMEET1 Link · GMEET1 Outcome · Script Status ·
+**Script Link** (Gdrive) · **Script Output Link** (Gdrive) · Call Notes.
+
 **Where things live:**
-- **Deal fields** (Call Outcome, Amount, GMEET1 Link/Outcome, Script Status): open the deal → **Actions ▸ View all properties**, or the pinned card.
+- **Deal fields**: open the deal → **Actions ▸ View all properties**, or the pinned card.
 - **Founder info** (LinkedIn, phone, role) — the **Contacts** card on the right (SPOC 1 = Primary, SPOC 2 = Secondary).
 - **Company info** (headcount, size, founded, segment) — the **Companies** card on the right.
 - **Your work list** — the **Tasks** queue.
