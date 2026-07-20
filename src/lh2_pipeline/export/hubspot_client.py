@@ -115,6 +115,10 @@ class HubspotClient:
             body["options"] = spec["options"]
         if spec.get("hasUniqueValue"):
             body["hasUniqueValue"] = True
+        if spec.get("referencedObjectType"):        # e.g. OWNER → HubSpot-user picker
+            body["referencedObjectType"] = spec["referencedObjectType"]
+        if spec.get("externalOptions"):             # required for object-referencing props
+            body["externalOptions"] = True
         status, resp = self._request("POST", f"/crm/v3/properties/{object_type}", body)
         # HubSpot requires unique property LABELS per object; a standard prop
         # (e.g. hs_linkedin_url "LinkedIn URL") can collide. The NAME is what we

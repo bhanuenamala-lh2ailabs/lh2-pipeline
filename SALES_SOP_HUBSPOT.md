@@ -90,7 +90,7 @@ Busy and Wrong-Number stay in **Call Attempted** — you loop back and call agai
 - Move stage → **GMEET1 Completed**.
 - **MUST: enter the deal value before advancing.** No value → do not move forward.
   - **Deal Value** (the number field, powers the forecast + becomes closed revenue at Won) — a single expected number.
-  - **Deal Value Range** — the negotiation range as text, e.g. `₹50L – ₹1Cr`.
+  - **Deal Value Range ($)** — the negotiation range in dollars, e.g. `$50k – $100k`.
 - **Share the eval script:** paste its Google Drive link into **Script Link**.
 - Set the **GMEET1 Outcome**:
   - **They run the script on the call (O1):** GMEET1 Outcome = `Script Run On Call`, Script Status = `Running` → stage **Script Running** → task **"Collect script results"** (today).
@@ -131,8 +131,8 @@ Awaiting Results → Results Received → Results Under Review → **Won** ·
 **Dead - Rejected · Dead - No Response · Dead - Meeting Rejected · Dead - Wrong Fit**
 
 **Deal fields you'll fill (open the deal → Actions ▸ View all properties, or the pinned card):**
-Call Outcome · **PoC** (who to reach for this deal) · **Deal Value** (number, for forecast) ·
-**Deal Value Range** (text, e.g. ₹50L–₹1Cr) · GMEET1 Link · GMEET1 Outcome · Script Status ·
+Call Outcome · **PoC** (pick the teammate who owns this deal's contact) · **Deal Value** (number, for forecast) ·
+**Deal Value Range ($)** (e.g. $50k–$100k) · GMEET1 Link · GMEET1 Outcome · Script Status ·
 **Script Link** (Gdrive) · **Script Output Link** (Gdrive) · Call Notes.
 
 **Where things live:**
