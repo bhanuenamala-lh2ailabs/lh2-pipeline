@@ -115,7 +115,28 @@
   .bkt .bf{height:100%;background:linear-gradient(90deg,var(--vio),var(--ind));border-radius:7px;transition:.5s;min-width:2px}
   .bkt .bn{width:32px;text-align:right;font-weight:700}
   .awaiting{color:var(--mut2);font-size:12.5px;text-align:center;padding:30px 12px;border:1px dashed var(--line);border-radius:12px;line-height:1.7}
-  @media(max-width:900px){.kpis,.statrow{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}aside{display:none}}
+  @media(max-width:900px){
+    body{flex-direction:column}
+    aside{width:100%;height:auto;position:static;padding:12px 14px;border-right:none;border-bottom:1px solid var(--line)}
+    .brand{padding:2px 4px 12px}
+    aside .navlbl{margin:8px 6px 6px}
+    .nav{display:flex;flex-direction:row;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+    .nav a{white-space:nowrap;padding:9px 13px;flex-shrink:0}
+    .nav a.soon{display:none}
+    #dashnav+.navlbl,#dashnav~.navlbl{display:none}       /* hide the Scope label+row on mobile */
+    aside .navlbl:last-of-type,aside .nav:last-of-type{display:none}
+    main{padding:16px 14px 40px}
+    .head h1{font-size:20px}
+    .controls{padding:12px;gap:10px}
+    .ctl,.ctl select,.ctl input{flex:1 1 42%}
+    .kpis,.statrow,.statrow.three{grid-template-columns:repeat(2,1fr)}
+    .grid2{grid-template-columns:1fr}
+    .cardhead{flex-direction:column}
+  }
+  @media(max-width:460px){
+    .kpis,.statrow,.statrow.three{grid-template-columns:1fr}
+    .kpi .val{font-size:30px}
+  }
 </style>
 </head>
 <body>
