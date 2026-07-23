@@ -1,0 +1,52 @@
+name: Deploy Sales Dashboard
+
+# Pulls fresh Scraped-pipeline data from HubSpot and deploys the dashboard to
+# GitHub Pages. Self-contained under /dashboard — independent of the pipeline code.
+# One-time setup:
+#   1. Settings -> Pages -> Source: "GitHub Actions"
+#   2. Settings -> Secrets and variables -> Actions -> new secret HUBSPOT_API_KEY
+
+on:
+  workflow_dispatch: {}          # run manually anytime
+  schedule:
+    - cron: "0 * * * *"          # hourly (UTC); change or remove as needed
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pull fresh HubSpot data
+        env:
+          HUBSPOT_API_KEY: ${{ secrets.HUBSPOT_API_KEY }}
+        run: python dashboard/build_dashboard.py
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp dashboard/index.html _site/index.html
+          cp dashboard/dashboard_data.json _site/dashboard_data.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
