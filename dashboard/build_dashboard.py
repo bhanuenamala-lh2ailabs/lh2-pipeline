@@ -8,7 +8,20 @@ actually fixed. Deals sitting at Cold Call are skipped (no history call needed).
 Token: HUBSPOT_API_KEY env (CI) or local .env (hubspot_key=...).
 """
 import json, os, sys, time, urllib.request, urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
+def ist_day(iso):
+    """UTC ISO timestamp -> YYYY-MM-DD in IST (HubSpot's display zone)."""
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(IST).strftime("%Y-%m-%d")
+    except Exception:
+        return iso[:10]
 
 def token():
     t = os.environ.get("HUBSPOT_API_KEY")
@@ -81,7 +94,7 @@ for r in deals:
     p = r["properties"]; oid = p.get("hubspot_owner_id"); st = p.get("dealstage")
     if not oid or st not in REACHED:
         continue
-    d = {"o":oid, "t":p.get("scraped_type") or "Untagged", "c":(p.get("createdate") or "")[:10],
+    d = {"o":oid, "t":p.get("scraped_type") or "Untagged", "c":ist_day(p.get("createdate")),
          "r":REACHED[st], "won":st==WON, "dead":st in DEAD,
          "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
          "rp":num(p,"num_repos"), "cost":num(p,"cost"),
@@ -102,7 +115,7 @@ for i, (idx, did) in enumerate(funnel):
     evs = [(REACHED.get(e.get("value"), 0), e.get("timestamp")) for e in entries if e.get("timestamp")]
     def first_at(thr):
         ts = [t for lvl, t in evs if lvl >= thr]
-        return min(ts)[:10] if ts else None      # earliest date it hit that milestone-or-beyond
+        return ist_day(min(ts)) if ts else None  # earliest date (IST) it hit that milestone-or-beyond
     d = rows[idx]
     cur = d["r"]             # current furthest stage; only credit milestones it currently sits at/beyond
     d["att"] = first_at(1) if cur >= 1 else None   # reached Call Attempted or beyond
@@ -118,7 +131,7 @@ for i, (idx, did) in enumerate(funnel):
 
 CORE = [("166420402","Shreyas Boosnoor"),("166322228","Ishpreet Sood"),("166262056","Shobit Gupta"),
         ("166483631","Yash Wani"),("166322218","Ashish Ranjan"),("95472647","Bhanu Enamala")]
-out = {"generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), "core": CORE, "rows": rows}
+out = {"generated": datetime.now(IST).strftime("%Y-%m-%d %H:%M IST"), "core": CORE, "rows": rows}
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard_data.json"), "w") as f:
     json.dump(out, f, separators=(",", ":"))
 print(f"wrote dashboard_data.json — {len(rows)} deals, {len(funnel)} with history")
