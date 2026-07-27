@@ -92,16 +92,21 @@ print(f"{len(rows)} deals | fetching stage history for {len(funnel)} funnel deal
 for i, (idx, did) in enumerate(funnel):
     s, h = call(f"/crm/v3/objects/deals/{did}?propertiesWithHistory=dealstage")
     entries = h.get("propertiesWithHistory", {}).get("dealstage", []) if s == 200 else []
-    seen = {}                                   # earliest entry ts per stage value
-    for e in reversed(entries):                 # list is newest-first -> reverse = oldest-first
-        v = e.get("value"); ts = e.get("timestamp")
-        if v and v not in seen: seen[v] = ts
-    def day(v): return (seen.get(v) or "")[:10] or None
-    offs = [seen[v] for v in seen if v not in (COLD, NEWLEAD, ASSIGNED)]
+    # (reached-level, timestamp) for every stage this deal ever entered.
+    # A deal counts toward a milestone if it EVER reached that stage OR BEYOND
+    # (incl. dying at/after it, e.g. Dead/GMeet/* == reached the GMeet milestone).
+    evs = [(REACHED.get(e.get("value"), 0), e.get("timestamp")) for e in entries if e.get("timestamp")]
+    def first_at(thr):
+        ts = [t for lvl, t in evs if lvl >= thr]
+        return min(ts)[:10] if ts else None      # earliest date it hit that milestone-or-beyond
     d = rows[idx]
-    d["att"] = (min(offs)[:10] if offs else None)   # first genuine move off Cold Call
-    d["ind"] = day(INTER); d["gm"] = day(GMEET)
-    d["ss"] = day(SS); d["rr"] = day(RRS); d["cn"] = day(CN)
+    cur = d["r"]             # current furthest stage; only credit milestones it currently sits at/beyond
+    d["att"] = first_at(1) if cur >= 1 else None   # reached Call Attempted or beyond
+    d["ind"] = first_at(2) if cur >= 2 else None   # reached Interested or beyond
+    d["gm"]  = first_at(3) if cur >= 3 else None   # reached GMeet or beyond == a gmeet was fixed
+    d["ss"]  = first_at(4) if cur >= 4 else None   # reached Script Shared or beyond
+    d["rr"]  = first_at(5) if cur >= 5 else None   # reached Script Results or beyond
+    d["cn"]  = first_at(6) if cur >= 6 else None   # reached Commercial Negotiation or beyond
     if (i+1) % 50 == 0: print(f"  {i+1}/{len(funnel)}", file=sys.stderr)
 
 CORE = [("166420402","Shreyas Boosnoor"),("166322228","Ishpreet Sood"),("166262056","Shobit Gupta"),

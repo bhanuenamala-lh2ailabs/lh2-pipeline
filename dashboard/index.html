@@ -251,8 +251,9 @@ function drawBars(el,tipId,rows,field,gran,from,to,label){
   const xstep=iw/keys.length,bw=Math.max(6,Math.min(42,xstep*.6));
   let grid='';for(let i=0;i<=tickN;i++){const y=pad.t+ih-ih*i/tickN;grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#eee"/><text x="${pad.l-6}" y="${y+3}" text-anchor="end" class="axlbl">${i*stepv}</text>`;}
   let bars='',lbls='';const every=Math.ceil(keys.length/12);
-  keys.forEach((k,i)=>{const x=pad.l+xstep*i+xstep/2-bw/2,h=ih*(map.get(k)/top),y=pad.t+ih-h;
-    bars+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="3" fill="#1447e6" data-k="${plabel(k,gran)}" data-v="${map.get(k)}" onmousemove="showT('${tipId}',evt,'${label}')" onmouseleave="hideT('${tipId}')"/>`;
+  keys.forEach((k,i)=>{const cx=pad.l+xstep*i+xstep/2,x=cx-bw/2,v=map.get(k),h=ih*(v/top),y=pad.t+ih-h;
+    bars+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="3" fill="#1447e6" data-k="${plabel(k,gran)}" data-v="${v}" onmousemove="showT('${tipId}',evt,'${label}')" onmouseleave="hideT('${tipId}')"/>`;
+    bars+=`<text x="${cx}" y="${y-4}" text-anchor="middle" style="fill:#171717;font-size:10px;font-weight:700;font-family:inherit">${v}</text>`;
     if(i%every===0)lbls+=`<text x="${pad.l+xstep*i+xstep/2}" y="${H-8}" text-anchor="middle" class="axlbl">${plabel(k,gran)}</text>`;});
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${grid}${bars}${lbls}</svg>`;
 }
