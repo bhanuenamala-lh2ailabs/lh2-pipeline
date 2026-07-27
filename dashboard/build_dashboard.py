@@ -85,7 +85,8 @@ for r in deals:
          "r":REACHED[st], "won":st==WON, "dead":st in DEAD,
          "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
          "rp":num(p,"num_repos"), "cost":num(p,"cost"),
-         "att":None, "ind":None, "gm":None, "ss":None, "rr":None, "cn":None}
+         "att":None, "ind":None, "gm":None, "ss":None, "rr":None, "cn":None,
+         "dc":None, "pi":None, "won_d":None}
     if st != COLD:
         funnel.append((len(rows), r["id"]))
     rows.append(d)
@@ -110,6 +111,9 @@ for i, (idx, did) in enumerate(funnel):
     d["ss"]  = first_at(4) if cur >= 4 else None   # reached Script Shared or beyond
     d["rr"]  = first_at(5) if cur >= 5 else None   # reached Script Results or beyond
     d["cn"]  = first_at(6) if cur >= 6 else None   # reached Commercial Negotiation or beyond
+    d["dc"]  = first_at(7) if cur >= 7 else None   # reached Deal Contract Signed or beyond
+    d["pi"]  = first_at(10) if cur >= 10 else None # reached Payment Initiation or beyond
+    d["won_d"] = first_at(11) if cur >= 11 else None  # reached Closed/Won
     if (i+1) % 50 == 0: print(f"  {i+1}/{len(funnel)}", file=sys.stderr)
 
 CORE = [("166420402","Shreyas Boosnoor"),("166322228","Ishpreet Sood"),("166262056","Shobit Gupta"),

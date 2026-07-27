@@ -113,10 +113,10 @@
   <div class="brand"><div class="logo">LH2</div><div><b>LH2 AI Labs</b><span>Sales Intelligence</span></div></div>
   <div class="navlbl">Dashboards</div>
   <div class="nav" id="dashnav">
-    <a data-d="gtm" class="on"><span class="ic">📊</span> GTM Analysts Summary</a>
+    <a data-d="gtm" class="on"><span class="ic">📊</span> GTM Analyst</a>
     <a data-d="lead"><span class="ic">🎯</span> Lead Manager</a>
+    <a data-d="closer"><span class="ic">📞</span> Lead Closer</a>
     <a data-d="ceo"><span class="ic">📈</span> Executive (CEO)</a>
-    <a class="soon"><span class="ic">📞</span> Closer Performance</a>
   </div>
   <div class="navlbl">Scope</div>
   <div class="nav"><a class="on" style="cursor:default;background:var(--bg);color:var(--txt)"><span class="ic">🗂️</span> Pipeline: Scraped</a></div>
@@ -179,7 +179,7 @@
 const F={data:null,dash:'gtm',g1:'day',g2:'day'};
 const A={blue:{c:'#1447e6',bg:'#eef2ff'},sky:{c:'#3d96ff',bg:'#eaf3ff'},amber:{c:'#f99c00',bg:'#fff4e5'},purple:{c:'#ac4bff',bg:'#f5ecff'}};
 const DASHBOARDS={
-  gtm:{name:'GTM Analysts Summary',sub:'Cold-call activity · Scraped pipeline',def:'166420402',
+  gtm:{name:'GTM Analyst',sub:'Cold-call activity · Scraped pipeline',def:'166420402',
     metrics:[
       {lbl:'Leads Assigned',f:'c',icon:'👥',...A.blue},
       {lbl:'Calls Attempted',f:'att',icon:'📞',...A.sky},
@@ -193,6 +193,13 @@ const DASHBOARDS={
       {lbl:'Script Results Received',f:'rr',icon:'📥',...A.amber},
       {lbl:'Commercial Negotiation',f:'cn',icon:'💬',...A.purple}],
     graphs:[{t:'GMeets assigned',f:'gm'},{t:'Script results received',f:'rr'}]},
+  closer:{name:'Lead Closer',sub:'Negotiation → contract → payment → won · Scraped pipeline',def:'166262056',
+    metrics:[
+      {lbl:'Commercial Negotiation',f:'cn',icon:'💬',...A.blue},
+      {lbl:'Deal Contract Signed',f:'dc',icon:'✍️',...A.sky},
+      {lbl:'Payment Initiation',f:'pi',icon:'💳',...A.amber},
+      {lbl:'Closed / Won',f:'won_d',icon:'🏆',...A.purple}],
+    graphs:[{t:'Commercial Negotiation',f:'cn'},{t:'Closed / Won',f:'won_d'}]},
   ceo:{name:'Executive Summary',sub:'Portfolio value & won economics · Scraped pipeline',def:'all',ceo:true},
 };
 const CEO_TARGET_LOC=10000000;
