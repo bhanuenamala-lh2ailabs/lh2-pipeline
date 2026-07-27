@@ -246,13 +246,14 @@ function drawBars(el,tipId,rows,field,gran,from,to,label){
   document.getElementById(el.replace('chart','g')+'sub');
   if(!keys.length){box.innerHTML='<div class="empty">No '+label.toLowerCase()+' in this range.</div>';return;}
   const W=560,H=210,pad={l:30,r:10,t:12,b:26},iw=W-pad.l-pad.r,ih=H-pad.t-pad.b;
-  const vals=keys.map(k=>map.get(k)),mx=Math.max(...vals,1);
-  const step=iw/keys.length,bw=Math.max(6,Math.min(42,step*.6));
-  let grid='';for(let i=0;i<=4;i++){const y=pad.t+ih-ih*i/4;grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#eee"/><text x="${pad.l-6}" y="${y+3}" text-anchor="end" class="axlbl">${Math.round(mx*i/4)}</text>`;}
+  const mx=Math.max(...keys.map(k=>map.get(k)),1);
+  const stepv=Math.max(1,Math.ceil(mx/4)),tickN=Math.ceil(mx/stepv),top=stepv*tickN;
+  const xstep=iw/keys.length,bw=Math.max(6,Math.min(42,xstep*.6));
+  let grid='';for(let i=0;i<=tickN;i++){const y=pad.t+ih-ih*i/tickN;grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#eee"/><text x="${pad.l-6}" y="${y+3}" text-anchor="end" class="axlbl">${i*stepv}</text>`;}
   let bars='',lbls='';const every=Math.ceil(keys.length/12);
-  keys.forEach((k,i)=>{const x=pad.l+step*i+step/2-bw/2,h=ih*(map.get(k)/mx),y=pad.t+ih-h;
+  keys.forEach((k,i)=>{const x=pad.l+xstep*i+xstep/2-bw/2,h=ih*(map.get(k)/top),y=pad.t+ih-h;
     bars+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="3" fill="#1447e6" data-k="${plabel(k,gran)}" data-v="${map.get(k)}" onmousemove="showT('${tipId}',evt,'${label}')" onmouseleave="hideT('${tipId}')"/>`;
-    if(i%every===0)lbls+=`<text x="${pad.l+step*i+step/2}" y="${H-8}" text-anchor="middle" class="axlbl">${plabel(k,gran)}</text>`;});
+    if(i%every===0)lbls+=`<text x="${pad.l+xstep*i+xstep/2}" y="${H-8}" text-anchor="middle" class="axlbl">${plabel(k,gran)}</text>`;});
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${grid}${bars}${lbls}</svg>`;
 }
 function showT(id,e,label){const t=e.target,tip=document.getElementById(id);
