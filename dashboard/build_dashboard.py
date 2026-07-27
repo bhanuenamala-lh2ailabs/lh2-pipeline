@@ -46,7 +46,10 @@ MDT="4036632313"; PI="4036633274"; WON="4036632309"
 NEWLEAD="4002503379"; ASSIGNED="4018854632"  # legacy pre-migration stages
 DEAD = {"4036632310","4036687547","4036632311","4036687548","4036687549","4035313388","4036632312"}
 REACHED = {COLD:0,CALLATT:1,INTER:2,GMEET:3,SS:4,RRS:5,CN:6,DC:7,DMG:8,MDT:9,PI:10,WON:11,
-    "4036632310":1,"4036687547":1,"4036632311":3,"4036687548":3,"4036687549":5,"4035313388":6,"4036632312":6}
+    "4036632310":1,   # Dead/ColdCall/Not Interested = a call was made (picked up, said no)
+    "4036687547":0,   # Dead/ColdCall/WrongFit = screened out from profile BEFORE dialing -> NOT a call
+    "4061963984":2,   # Dead/Interested/NoShow = said interested, never made the gmeet -> level 2
+    "4036632311":3,"4036687548":3,"4036687549":5,"4035313388":6,"4036632312":6}
 
 PROPS = ["hubspot_owner_id","scraped_type","dealstage","createdate",
          "loc","pr_count","num_projects","num_repos","cost"]
