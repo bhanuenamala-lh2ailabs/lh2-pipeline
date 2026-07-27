@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """CI-ready: pull the Scraped-pipeline dashboard data from HubSpot -> dashboard_data.json.
 
-Reads the token from the HUBSPOT_API_KEY env var (a GitHub Actions secret in CI),
-or falls back to `.env` (hubspot_key=...) for local runs. No other dependencies.
+Uses each deal's STAGE-CHANGE HISTORY (for the funnel deals only) to get accurate,
+date-stamped milestones: when a call was attempted, when interested, when a GMeet was
+actually fixed. Deals sitting at Cold Call are skipped (no history call needed).
+
+Token: HUBSPOT_API_KEY env (CI) or local .env (hubspot_key=...).
 """
-import json, os, sys, urllib.request, urllib.error
+import json, os, sys, time, urllib.request, urllib.error
+from datetime import datetime, timezone
 
 def token():
     t = os.environ.get("HUBSPOT_API_KEY")
@@ -24,23 +28,27 @@ def call(path, method="GET", payload=None):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, method=method,
         headers={"Authorization": "Bearer " + TOK, "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            b = r.read().decode()
-            return r.status, (json.loads(b) if b else {})
-    except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read().decode() or "{}")
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                b = r.read().decode()
+                return r.status, (json.loads(b) if b else {})
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                time.sleep(2); continue
+            return e.code, json.loads(e.read().decode() or "{}")
+    return 429, {}
 
-# stage id -> furthest funnel index (live = order; dead = where it died)
-REACHED = {
-    "3992480462":0,"3992480464":1,"3992480465":2,"3992480469":3,"3992480471":4,
-    "3992480473":5,"4030231231":6,"4029653710":7,"3992480475":8,"4036632313":9,
-    "4036633274":10,"4036632309":11,"4036632310":1,"4036687547":1,"4036632311":3,
-    "4036687548":3,"4036687549":5,"4035313388":6,"4036632312":6}
-WON = "4036632309"
+# stage ids (Scraped pipeline)
+COLD="3992480462"; CALLATT="3992480464"; INTER="3992480465"; GMEET="3992480469"
+SS="3992480471"; RRS="3992480473"; CN="4030231231"; DC="4029653710"; DMG="3992480475"
+MDT="4036632313"; PI="4036633274"; WON="4036632309"
+NEWLEAD="4002503379"; ASSIGNED="4018854632"  # legacy pre-migration stages
 DEAD = {"4036632310","4036687547","4036632311","4036687548","4036687549","4035313388","4036632312"}
+REACHED = {COLD:0,CALLATT:1,INTER:2,GMEET:3,SS:4,RRS:5,CN:6,DC:7,DMG:8,MDT:9,PI:10,WON:11,
+    "4036632310":1,"4036687547":1,"4036632311":3,"4036687548":3,"4036687549":5,"4035313388":6,"4036632312":6}
 
-PROPS = ["hubspot_owner_id","scraped_type","dealstage","createdate","hs_v2_date_entered_current_stage",
+PROPS = ["hubspot_owner_id","scraped_type","dealstage","createdate",
          "loc","pr_count","num_projects","num_repos","cost"]
 
 def scan():
@@ -50,8 +58,7 @@ def scan():
              "filterGroups":[{"filters":[{"propertyName":"pipeline","operator":"EQ","value":"default"}]}]}
         if after: b["after"] = after
         s, d = call("/crm/v3/objects/deals/search", "POST", b)
-        if s != 200:
-            sys.exit(f"HubSpot error {s}: {str(d)[:200]}")
+        if s != 200: sys.exit(f"HubSpot error {s}: {str(d)[:200]}")
         out += d.get("results", [])
         after = d.get("paging", {}).get("next", {}).get("after")
         if not after: return out
@@ -64,20 +71,42 @@ def num(p, k):
 s, own = call("/crm/v3/owners?limit=100")
 owners = {o["id"]: f"{o.get('firstName','')} {o.get('lastName','')}".strip() for o in own.get("results", [])}
 
+deals = scan()
 rows = []
-for r in scan():
+funnel = []   # (index, deal_id) needing history
+for r in deals:
     p = r["properties"]; oid = p.get("hubspot_owner_id"); st = p.get("dealstage")
     if not oid or st not in REACHED:
         continue
-    rows.append({"o":oid, "t":p.get("scraped_type") or "Untagged", "c":(p.get("createdate") or "")[:10],
-        "r":REACHED[st], "sd":(p.get("hs_v2_date_entered_current_stage") or "")[:10],
-        "won":st==WON, "dead":st in DEAD,
-        "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
-        "rp":num(p,"num_repos"), "cost":num(p,"cost")})
+    d = {"o":oid, "t":p.get("scraped_type") or "Untagged", "c":(p.get("createdate") or "")[:10],
+         "r":REACHED[st], "won":st==WON, "dead":st in DEAD,
+         "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
+         "rp":num(p,"num_repos"), "cost":num(p,"cost"),
+         "att":None, "ind":None, "gm":None, "ss":None, "rr":None, "cn":None}
+    if st != COLD:
+        funnel.append((len(rows), r["id"]))
+    rows.append(d)
+
+print(f"{len(rows)} deals | fetching stage history for {len(funnel)} funnel deals...", file=sys.stderr)
+
+for i, (idx, did) in enumerate(funnel):
+    s, h = call(f"/crm/v3/objects/deals/{did}?propertiesWithHistory=dealstage")
+    entries = h.get("propertiesWithHistory", {}).get("dealstage", []) if s == 200 else []
+    seen = {}                                   # earliest entry ts per stage value
+    for e in reversed(entries):                 # list is newest-first -> reverse = oldest-first
+        v = e.get("value"); ts = e.get("timestamp")
+        if v and v not in seen: seen[v] = ts
+    def day(v): return (seen.get(v) or "")[:10] or None
+    offs = [seen[v] for v in seen if v not in (COLD, NEWLEAD, ASSIGNED)]
+    d = rows[idx]
+    d["att"] = (min(offs)[:10] if offs else None)   # first genuine move off Cold Call
+    d["ind"] = day(INTER); d["gm"] = day(GMEET)
+    d["ss"] = day(SS); d["rr"] = day(RRS); d["cn"] = day(CN)
+    if (i+1) % 50 == 0: print(f"  {i+1}/{len(funnel)}", file=sys.stderr)
 
 CORE = [("166420402","Shreyas Boosnoor"),("166322228","Ishpreet Sood"),("166262056","Shobit Gupta"),
         ("166483631","Yash Wani"),("166322218","Ashish Ranjan"),("95472647","Bhanu Enamala")]
-out = {"generated": max((r["c"] for r in rows), default=""), "core": CORE, "rows": rows}
+out = {"generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), "core": CORE, "rows": rows}
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard_data.json"), "w") as f:
     json.dump(out, f, separators=(",", ":"))
-print(f"wrote dashboard_data.json — {len(rows)} deals")
+print(f"wrote dashboard_data.json — {len(rows)} deals, {len(funnel)} with history")
