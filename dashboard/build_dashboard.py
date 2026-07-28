@@ -104,7 +104,7 @@ for r in deals:
          "dc":None, "pi":None, "won_d":None}
     if st != COLD:
         funnel.append((len(rows), r["id"]))
-    if d["loc"] > 0 or d["won"]:
+    if d["r"] >= 5 or d["won"]:   # Script Results Received or beyond (even if metadata missing)
         hotnote.append((len(rows), r["id"]))
     rows.append(d)
 
