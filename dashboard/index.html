@@ -144,18 +144,7 @@
 
   <div id="analystView">
     <div class="kpis" id="kpis"></div>
-    <div class="grid2">
-      <div class="panel">
-        <div class="phead"><div><h3 id="g1ttl">New leads assigned</h3><div class="psub" id="g1sub"></div></div>
-          <div class="seg" id="gran1"><button data-g="day" class="on">Day</button><button data-g="week">Week</button></div></div>
-        <div class="chartwrap"><div class="tip" id="tip1"></div><div id="chart1"></div></div>
-      </div>
-      <div class="panel">
-        <div class="phead"><div><h3 id="g2ttl">GMeets fixed</h3><div class="psub" id="g2sub"></div></div>
-          <div class="seg" id="gran2"><button data-g="day" class="on">Day</button><button data-g="week">Week</button></div></div>
-        <div class="chartwrap"><div class="tip" id="tip2"></div><div id="chart2"></div></div>
-      </div>
-    </div>
+    <div class="grid2" id="graphs"></div>
   </div>
 
   <div id="ceoView" style="display:none">
@@ -176,7 +165,7 @@
 </main>
 
 <script>
-const F={data:null,dash:'gtm',g1:'day',g2:'day'};
+const F={data:null,dash:'gtm',gran:['day','day','day','day']};
 const A={blue:{c:'#1447e6',bg:'#eef2ff'},sky:{c:'#3d96ff',bg:'#eaf3ff'},amber:{c:'#f99c00',bg:'#fff4e5'},purple:{c:'#ac4bff',bg:'#f5ecff'}};
 const DASHBOARDS={
   gtm:{name:'GTM Analyst',sub:'Cold-call activity · Scraped pipeline',def:'166420402',
@@ -185,7 +174,7 @@ const DASHBOARDS={
       {lbl:'Calls Attempted',f:'att',icon:'📞',...A.sky},
       {lbl:'Connected & Interested',f:'ind',icon:'🤝',...A.amber},
       {lbl:'GMeets Fixed',f:'gm',icon:'📅',...A.purple}],
-    graphs:[{t:'New leads assigned',f:'c'},{t:'GMeets fixed',f:'gm'}]},
+    graphs:[{t:'New leads assigned',f:'c'},{t:'Calls attempted',f:'att'},{t:'Connected & interested',f:'ind'},{t:'GMeets fixed',f:'gm'}]},
   lead:{name:'Lead Manager',sub:'Meeting → script → results → negotiation · Scraped pipeline',def:'166322228',
     metrics:[
       {lbl:'GMeets Assigned',f:'gm',icon:'📅',...A.blue},
@@ -244,16 +233,20 @@ function renderAnalyst(){
       <div class="val">${v.toLocaleString()}</div><div class="sub">${sub}</div></div>`;
   }).join('');
   const g=dash.graphs;
-  document.getElementById('g1ttl').textContent=g[0].t;
-  document.getElementById('g2ttl').textContent=g[1].t;
-  drawBars('chart1','tip1',rows,g[0].f,F.g1,from,to,g[0].t);
-  drawBars('chart2','tip2',rows,g[1].f,F.g2,from,to,g[1].t);
+  document.getElementById('graphs').innerHTML=g.map((gr,i)=>`
+    <div class="panel">
+      <div class="phead"><div><h3>${gr.t}</h3><div class="psub"></div></div>
+        <div class="seg" data-gi="${i}"><button data-g="day" class="${F.gran[i]==='day'?'on':''}">Day</button><button data-g="week" class="${F.gran[i]==='week'?'on':''}">Week</button></div></div>
+      <div class="chartwrap"><div class="tip" id="tip${i}"></div><div id="chart${i}"></div></div>
+    </div>`).join('');
+  g.forEach((gr,i)=>drawBars('chart'+i,'tip'+i,rows,gr.f,F.gran[i]||'day',from,to,gr.t));
+  document.querySelectorAll('#graphs .seg').forEach(seg=>{const gi=+seg.dataset.gi;
+    seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');F.gran[gi]=b.dataset.g;render();});});
 }
 function drawBars(el,tipId,rows,field,gran,from,to,label){
   const map=new Map();
   rows.forEach(r=>{const v=r[field];if(inRange(v,from,to)){const k=pkey(v,gran);map.set(k,(map.get(k)||0)+1);}});
   const keys=[...map.keys()].sort();const box=document.getElementById(el);
-  document.getElementById(el.replace('chart','g')+'sub');
   if(!keys.length){box.innerHTML='<div class="empty">No '+label.toLowerCase()+' in this range.</div>';return;}
   const W=560,H=210,pad={l:30,r:10,t:12,b:26},iw=W-pad.l-pad.r,ih=H-pad.t-pad.b;
   const mx=Math.max(...keys.map(k=>map.get(k)),1);
@@ -324,8 +317,6 @@ function init(){
   document.getElementById('preset').onchange=e=>{const c=e.target.value==='custom';
     document.getElementById('fromwrap').style.display=c?'flex':'none';document.getElementById('towrap').style.display=c?'flex':'none';render();};
   ['member','type','from','to'].forEach(id=>document.getElementById(id).onchange=render);
-  document.querySelectorAll('#gran1 button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#gran1 button').forEach(x=>x.classList.remove('on'));b.classList.add('on');F.g1=b.dataset.g;render();});
-  document.querySelectorAll('#gran2 button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#gran2 button').forEach(x=>x.classList.remove('on'));b.classList.add('on');F.g2=b.dataset.g;render();});
   document.querySelectorAll('#dashnav a[data-d]').forEach(a=>a.onclick=()=>switchDash(a.dataset.d));
   render();
 }
