@@ -72,7 +72,7 @@
   .hdt tr.won td{background:#eafaf0}
   .hdt td.nm{font-weight:700;color:#0b1220;white-space:nowrap}
   .hdt td.vr{font-size:11px;color:#404a5c;max-width:150px}
-  .hdt td.note{font-size:11px;color:#5b6472;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hdt td.note{font-size:11px;color:#5b6472;min-width:220px;max-width:340px;white-space:normal;line-height:1.35}
   .hdt a{color:#1447e6;font-weight:600;text-decoration:none}
   .pill{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
   .pill.p{background:#e8eefc;color:#1447e6} .pill.w{background:#d6f5e3;color:#15803d} .pill.d{background:#fdecec;color:#b91c1c}
@@ -207,7 +207,7 @@ const DASHBOARDS={
     graphs:[{t:'Commercial negotiation',f:'cn'},{t:'Contracts signed',f:'dc'},{t:'Payment initiation',f:'pi'},{t:'Closed / Won',f:'won_d'}]},
   ceo:{name:'Executive Summary',sub:'Portfolio value & won economics · Scraped pipeline',def:'all',ceo:true},
 };
-const CEO_TARGET_LOC=10000000;
+const CEO_TARGET_LOC=40000000;
 
 function iso(d){return d.toISOString().slice(0,10);}
 function weekKey(s){const d=new Date(s+'T00:00:00');const wd=(d.getDay()+6)%7;d.setDate(d.getDate()-wd);return iso(d);}
@@ -308,8 +308,7 @@ function renderCEO(){
   const pct=Math.min(100,loc/CEO_TARGET_LOC*100);
   document.getElementById('pvtarget').innerHTML=
     `<div class="tt"><span>Target progress — <b>${fmtBig(loc)}</b> of <b>${fmtBig(CEO_TARGET_LOC)}</b> LoC</span><b>${pct.toFixed(1)}%</b></div>
-     <div class="tbar"><div class="tf" style="width:${pct}%"></div></div>
-     <div style="margin-top:9px;color:var(--mut2);font-size:11px">Target is a placeholder (10M LoC) — give me the real figure and I'll set it.</div>`;
+     <div class="tbar"><div class="tf" style="width:${pct}%"></div></div>`;
   const wl=rows.filter(r=>r.loc>0),lb=document.getElementById('locbuckets');
   if(!wl.length)lb.innerHTML='<div class="awaiting">Awaiting LoC inputs from Lead Managers.<br>Buckets fill once deals carry code sizes.</div>';
   else{const B=[['<50k',0,5e4],['50–100k',5e4,1e5],['100–250k',1e5,2.5e5],['250–500k',2.5e5,5e5],['500k–1M',5e5,1e6],['1M+',1e6,Infinity]];

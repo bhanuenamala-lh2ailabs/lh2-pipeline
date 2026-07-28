@@ -133,7 +133,7 @@ for i, (idx, did) in enumerate(funnel):
     d["won_d"] = first_at(11) if cur >= 11 else None  # reached Closed/Won
     if (i+1) % 50 == 0: print(f"  {i+1}/{len(funnel)}", file=sys.stderr)
 
-import re as _re
+import re as _re, html as _html
 print(f"fetching notes for {len(hotnote)} hot/won deals...", file=sys.stderr)
 for idx, did in hotnote:
     s, a = call(f"/crm/v4/objects/deals/{did}/associations/notes")
@@ -145,9 +145,21 @@ for idx, did in hotnote:
         notes = nb.get("results", []) if s == 200 else []
         notes.sort(key=lambda x: x["properties"].get("hs_timestamp", ""), reverse=True)
         for n in notes:
-            b = _re.sub("<[^>]+>", " ", n["properties"].get("hs_note_body", "") or "").strip()
-            if b: body = b; break
-    rows[idx]["note"] = body[:300]
+            raw = n["properties"].get("hs_note_body", "") or ""
+            raw = _re.sub("(?i)<br\\s*/?>", "\n", raw)
+            raw = _html.unescape(_re.sub("<[^>]+>", "", raw))
+            if raw.strip(): body = raw; break
+    # surface the actual Remarks line, not the migration boilerplate
+    note = ""
+    for line in [l.strip() for l in body.split("\n") if l.strip()]:
+        if line.lower().startswith("remarks:"):
+            note = line.split(":", 1)[1].strip(); break
+    if not note:
+        skip = ("[pipeline tracker", "sheet stage", "category:", "priority:", "metadata:",
+                "script output:", "last update:", "status (", "(phase-2")
+        keep = [l.strip() for l in body.split("\n") if l.strip() and not l.strip().lower().startswith(skip)]
+        note = " · ".join(keep)
+    rows[idx]["note"] = note[:260]
 
 CORE = [("166420402","Shreyas Boosnoor"),("166322228","Ishpreet Sood"),("166262056","Shobit Gupta"),
         ("166483631","Yash Wani"),("166322218","Ashish Ranjan"),("95472647","Bhanu Enamala")]
