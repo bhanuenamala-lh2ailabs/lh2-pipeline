@@ -64,8 +64,8 @@ REACHED = {COLD:0,CALLATT:1,INTER:2,GMEET:3,SS:4,RRS:5,CN:6,DC:7,DMG:8,MDT:9,PI:
     "4061963984":2,   # Dead/Interested/NoShow = said interested, never made the gmeet -> level 2
     "4036632311":3,"4036687548":3,"4036687549":5,"4035313388":6,"4036632312":6}
 
-PROPS = ["hubspot_owner_id","scraped_type","dealstage","createdate",
-         "loc","pr_count","num_projects","num_repos","cost"]
+PROPS = ["hubspot_owner_id","scraped_type","dealstage","createdate","dealname","metadata_link",
+         "deal_value_range","loc","pr_count","num_projects","num_repos","cost"]
 
 def scan():
     out, after = [], None
@@ -90,18 +90,22 @@ owners = {o["id"]: f"{o.get('firstName','')} {o.get('lastName','')}".strip() for
 deals = scan()
 rows = []
 funnel = []   # (index, deal_id) needing history
+hotnote = []  # (index, deal_id) for metric-bearing / won deals -> fetch note
 for r in deals:
     p = r["properties"]; oid = p.get("hubspot_owner_id"); st = p.get("dealstage")
     if not oid or st not in REACHED:
         continue
     d = {"o":oid, "t":p.get("scraped_type") or "Untagged", "c":ist_day(p.get("createdate")),
          "r":REACHED[st], "cc":st==COLD, "won":st==WON, "dead":st in DEAD,
+         "nm":p.get("dealname") or "", "ml":p.get("metadata_link") or "", "dvr":p.get("deal_value_range") or "",
          "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
          "rp":num(p,"num_repos"), "cost":num(p,"cost"),
          "att":None, "ind":None, "gm":None, "ss":None, "rr":None, "cn":None,
          "dc":None, "pi":None, "won_d":None}
     if st != COLD:
         funnel.append((len(rows), r["id"]))
+    if d["loc"] > 0 or d["won"]:
+        hotnote.append((len(rows), r["id"]))
     rows.append(d)
 
 print(f"{len(rows)} deals | fetching stage history for {len(funnel)} funnel deals...", file=sys.stderr)
@@ -128,6 +132,22 @@ for i, (idx, did) in enumerate(funnel):
     d["pi"]  = first_at(10) if cur >= 10 else None # reached Payment Initiation or beyond
     d["won_d"] = first_at(11) if cur >= 11 else None  # reached Closed/Won
     if (i+1) % 50 == 0: print(f"  {i+1}/{len(funnel)}", file=sys.stderr)
+
+import re as _re
+print(f"fetching notes for {len(hotnote)} hot/won deals...", file=sys.stderr)
+for idx, did in hotnote:
+    s, a = call(f"/crm/v4/objects/deals/{did}/associations/notes")
+    nids = [str(x["toObjectId"]) for x in a.get("results", [])] if s == 200 else []
+    body = ""
+    if nids:
+        s, nb = call("/crm/v3/objects/notes/batch/read", "POST",
+                     {"properties": ["hs_note_body", "hs_timestamp"], "inputs": [{"id": n} for n in nids]})
+        notes = nb.get("results", []) if s == 200 else []
+        notes.sort(key=lambda x: x["properties"].get("hs_timestamp", ""), reverse=True)
+        for n in notes:
+            b = _re.sub("<[^>]+>", " ", n["properties"].get("hs_note_body", "") or "").strip()
+            if b: body = b; break
+    rows[idx]["note"] = body[:300]
 
 CORE = [("166420402","Shreyas Boosnoor"),("166322228","Ishpreet Sood"),("166262056","Shobit Gupta"),
         ("166483631","Yash Wani"),("166322218","Ashish Ranjan"),("95472647","Bhanu Enamala")]

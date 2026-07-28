@@ -65,6 +65,17 @@
   .kpi .sub b{color:var(--txt);font-weight:700}
 
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .hdt{width:100%;border-collapse:collapse;font-size:12px;min-width:900px}
+  .hdt th{background:#1447e6;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.3px;padding:6px 8px;text-align:left;white-space:nowrap}
+  .hdt td{padding:6px 8px;border-bottom:1px solid #eef1f6;vertical-align:top}
+  .hdt tr:nth-child(even) td{background:#f7f9fd}
+  .hdt tr.won td{background:#eafaf0}
+  .hdt td.nm{font-weight:700;color:#0b1220;white-space:nowrap}
+  .hdt td.vr{font-size:11px;color:#404a5c;max-width:150px}
+  .hdt td.note{font-size:11px;color:#5b6472;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hdt a{color:#1447e6;font-weight:600;text-decoration:none}
+  .pill{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
+  .pill.p{background:#e8eefc;color:#1447e6} .pill.w{background:#d6f5e3;color:#15803d} .pill.d{background:#fdecec;color:#b91c1c}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow)}
   .phead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px}
   .phead h3{font-size:14px;font-weight:700}
@@ -161,6 +172,10 @@
       <div class="panel"><div class="phead"><div><h3>Code Size Distribution</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Deals bucketed by lines of code</div></div></div><div id="locbuckets"></div></div>
       <div class="panel"><div class="phead"><div><h3>Won Economics</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Cost efficiency of closed-won deals</div></div></div>
         <div class="statrow three" id="wonstats"></div><div class="chartwrap"><div class="tip" id="tip3"></div><div id="scatter"></div></div></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <div class="phead"><div><h3>Hot &amp; Won Deals</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Code metadata, pricing, notes &amp; links to script results</div></div></div>
+      <div style="overflow-x:auto"><div id="hotdeals"></div></div>
     </div>
   </div>
 </main>
@@ -282,7 +297,8 @@ function switchDash(d){
 /* ---- CEO ---- */
 function miniStat(l,i,v){return `<div class="ministat"><div class="i">${i}</div><div class="l">${l}</div><div class="v">${v}</div></div>`;}
 function renderCEO(){
-  const rows=filteredMembers();
+  const _m=document.getElementById('member').value;   // Executive view spans ALL tags (member filter only)
+  const rows=F.data.rows.filter(r=>_m==='all'||r.o===_m);
   const mode=(document.getElementById('pvmode')||{}).value||'pipe';
   const set=mode==='won'?rows.filter(r=>r.won):rows.filter(r=>!r.won&&!r.dead);
   const sum=k=>set.reduce((a,r)=>a+(r[k]||0),0);
@@ -310,6 +326,21 @@ function renderCEO(){
       g+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#eee"/><text x="${pad.l-6}" y="${y+3}" text-anchor="end" class="axlbl">$${fmtBig(my*i/4)}</text><text x="${x}" y="${H-10}" text-anchor="middle" class="axlbl">$${fmtBig(mx*i/4)}</text>`;}
     const dots=pts.map(p=>`<circle cx="${pad.l+iw*(p.x/mx)}" cy="${pad.t+ih-ih*(p.y/my)}" r="5" fill="#f99c00" stroke="#fff"/>`).join('');
     sc.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${g}<text x="${pad.l+iw/2}" y="${H}" text-anchor="middle" class="axlbl">cost / deal →</text>${dots}</svg>`;}
+  // Hot & Won deals table
+  const STG={0:'Cold Call',1:'Call Attempted',2:'Interested',3:'GMeet Fixed',4:'Script Shared',5:'Script Results',6:'Commercial Nego',7:'Contract Signed',8:'Data Migration',9:'Metadata Matched',10:'Payment Init',11:'Closed/Won'};
+  const esc=s=>(s||'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+  const hd=rows.filter(r=>r.loc>0||r.won).sort((a,b)=>(b.won-a.won)||(b.loc-a.loc));
+  const hdt=document.getElementById('hotdeals');
+  if(!hd.length)hdt.innerHTML='<div class="awaiting">No deals carry code metadata yet.</div>';
+  else hdt.innerHTML='<table class="hdt"><thead><tr><th>Deal</th><th>Stage</th><th>Proj</th><th>LoC</th><th>PRs</th><th>LoC/PR</th><th>Price</th><th>Value range</th><th>Link</th><th>Note</th></tr></thead><tbody>'+
+    hd.map(r=>{const ratio=r.pr>0?Math.round(r.loc/r.pr).toLocaleString():'';const won=r.won,dead=r.dead;
+      return `<tr class="${won?'won':''}"><td class="nm">${esc(r.nm)||'—'}</td>`+
+      `<td><span class="pill ${won?'w':(dead?'d':'p')}">${won?'Won':(dead?'Dead':(STG[r.r]||'—'))}</span></td>`+
+      `<td>${r.pj||'—'}</td><td>${r.loc?fmtBig(r.loc):'—'}</td><td>${r.pr?fmtBig(r.pr):'—'}</td>`+
+      `<td>${ratio||'—'}</td><td>${r.cost?'$'+fmtBig(r.cost):'—'}</td>`+
+      `<td class="vr">${esc(r.dvr)||'—'}</td>`+
+      `<td>${r.ml?`<a href="${esc(r.ml)}" target="_blank" rel="noopener">open ↗</a>`:'—'}</td>`+
+      `<td class="note" title="${esc(r.note)}">${esc(r.note)||'—'}</td></tr>`;}).join('')+'</tbody></table>';
 }
 
 function init(){
