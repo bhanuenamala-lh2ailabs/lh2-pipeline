@@ -181,7 +181,7 @@ const A={blue:{c:'#1447e6',bg:'#eef2ff'},sky:{c:'#3d96ff',bg:'#eaf3ff'},amber:{c
 const DASHBOARDS={
   gtm:{name:'GTM Analyst',sub:'Cold-call activity · Scraped pipeline',def:'166420402',
     metrics:[
-      {lbl:'Leads Assigned',f:'c',icon:'👥',...A.blue},
+      {lbl:'To Reach Out',snap:'cc',icon:'📋',...A.blue},
       {lbl:'Calls Attempted',f:'att',icon:'📞',...A.sky},
       {lbl:'Connected & Interested',f:'ind',icon:'🤝',...A.amber},
       {lbl:'GMeets Fixed',f:'gm',icon:'📅',...A.purple}],
@@ -236,10 +236,12 @@ function render(){
 function renderAnalyst(){
   const dash=DASHBOARDS[F.dash],rows=filteredMembers();const[from,to]=rangeBounds();
   document.getElementById('kpis').innerHTML=dash.metrics.map(m=>{
-    const v=rows.filter(r=>inRange(r[m.f],from,to)).length;
+    const snap=!!m.snap;
+    const v=snap?rows.filter(r=>r[m.snap]).length:rows.filter(r=>inRange(r[m.f],from,to)).length;
+    const sub=snap?'pending — not date-filtered':'in selected range';
     return `<div class="kpi" style="--accent:${m.c};--accentbg:${m.bg}">
       <div class="ic">${m.icon}</div><div class="lbl">${m.lbl}</div>
-      <div class="val">${v.toLocaleString()}</div><div class="sub">in selected range</div></div>`;
+      <div class="val">${v.toLocaleString()}</div><div class="sub">${sub}</div></div>`;
   }).join('');
   const g=dash.graphs;
   document.getElementById('g1ttl').textContent=g[0].t;

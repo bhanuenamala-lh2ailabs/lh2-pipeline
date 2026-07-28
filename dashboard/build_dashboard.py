@@ -95,7 +95,7 @@ for r in deals:
     if not oid or st not in REACHED:
         continue
     d = {"o":oid, "t":p.get("scraped_type") or "Untagged", "c":ist_day(p.get("createdate")),
-         "r":REACHED[st], "won":st==WON, "dead":st in DEAD,
+         "r":REACHED[st], "cc":st==COLD, "won":st==WON, "dead":st in DEAD,
          "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
          "rp":num(p,"num_repos"), "cost":num(p,"cost"),
          "att":None, "ind":None, "gm":None, "ss":None, "rr":None, "cn":None,
