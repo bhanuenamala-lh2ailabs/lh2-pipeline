@@ -52,26 +52,40 @@ def call(path, method="GET", payload=None):
             return e.code, json.loads(e.read().decode() or "{}")
     return 429, {}
 
-# stage ids (Scraped pipeline)
-COLD="3992480462"; CALLATT="3992480464"; INTER="3992480465"; GMEET="3992480469"
-SS="3992480471"; RRS="3992480473"; CN="4030231231"; DC="4029653710"; DMG="3992480475"
-MDT="4036632313"; PI="4036633274"; WON="4036632309"
-NEWLEAD="4002503379"; ASSIGNED="4018854632"  # legacy pre-migration stages
-DEAD = {"4036632310","4036687547","4036632311","4036687548","4036687549","4035313388","4036632312"}
-REACHED = {COLD:0,CALLATT:1,INTER:2,GMEET:3,SS:4,RRS:5,CN:6,DC:7,DMG:8,MDT:9,PI:10,WON:11,
-    "4036632310":1,   # Dead/ColdCall/Not Interested = a call was made (picked up, said no)
-    "4036687547":0,   # Dead/ColdCall/WrongFit = screened out from profile BEFORE dialing -> NOT a call
-    "4061963984":2,   # Dead/Interested/NoShow = said interested, never made the gmeet -> level 2
-    "4036632311":3,"4036687548":3,"4036687549":5,"4035313388":6,"4036632312":6}
+# ---- stage->level maps built dynamically from BOTH pipelines (same SOP cadence, different stage ids) ----
+PIPELINES = {"default": "scraped", "2425754306": "campaign"}
+LEVEL = {"Cold Call":0,"Call Attempted":1,"Interested":2,"GMeet Fixed":3,"Script Shared":4,
+    "Script Results Received":5,"Commercial Negotiation":6,"Deal Contract Signed":7,
+    "Data Migration Done":8,"Metadata Matched":9,"Payment Initiation":10,"Closed/Won":11}
+DEAD_LEVEL = {"Dead/ColdCall/Not Interested":1,"Dead/ColdCall/WrongFit":0,"Dead/Interested/NoShow":2,
+    "Dead/GMeet/wrong fit":3,"Dead/Gmeet/Privacy Concerns":3,"Dead/ResultsReceived/WrongFit-Rejected":5,
+    "Dead/Negotiation/Pricing":6,"Dead/Negotiation/Contractual":6}
+REACHED = {}; DEAD = set(); WON_IDS = set(); COLD_IDS = set()
+for _pid in PIPELINES:
+    _s, _pp = call(f"/crm/v3/pipelines/deals/{_pid}")
+    for st in _pp.get("stages", []):
+        sid, lab = st["id"], st["label"]
+        if lab in LEVEL:
+            REACHED[sid] = LEVEL[lab]
+            if lab == "Closed/Won": WON_IDS.add(sid)
+            if lab == "Cold Call": COLD_IDS.add(sid)
+        elif lab in DEAD_LEVEL:
+            REACHED[sid] = DEAD_LEVEL[lab]; DEAD.add(sid)
 
-PROPS = ["hubspot_owner_id","scraped_type","dealstage","createdate","dealname","metadata_link",
-         "deal_value_range","loc","pr_count","num_projects","num_repos","cost"]
+def bucket_ls(ls):
+    ls = (ls or "").lower()
+    if "indonesia" in ls: return "Indonesia"
+    if "india" in ls: return "India"
+    return None
+
+PROPS = ["hubspot_owner_id","scraped_type","lead_source","pipeline","dealstage","createdate","dealname",
+         "metadata_link","deal_value_range","loc","pr_count","num_projects","num_repos","cost"]
 
 def scan():
     out, after = [], None
     while True:
         b = {"limit":100,"properties":PROPS,
-             "filterGroups":[{"filters":[{"propertyName":"pipeline","operator":"EQ","value":"default"}]}]}
+             "filterGroups":[{"filters":[{"propertyName":"pipeline","operator":"IN","values":list(PIPELINES)}]}]}
         if after: b["after"] = after
         s, d = call("/crm/v3/objects/deals/search", "POST", b)
         if s != 200: sys.exit(f"HubSpot error {s}: {str(d)[:200]}")
@@ -95,14 +109,15 @@ for r in deals:
     p = r["properties"]; oid = p.get("hubspot_owner_id"); st = p.get("dealstage")
     if not oid or st not in REACHED:
         continue
-    d = {"o":oid, "t":p.get("scraped_type") or "Untagged", "c":ist_day(p.get("createdate")),
-         "r":REACHED[st], "cc":st==COLD, "won":st==WON, "dead":st in DEAD,
+    d = {"o":oid, "pl":PIPELINES.get(p.get("pipeline"), "scraped"),
+         "t":p.get("scraped_type") or bucket_ls(p.get("lead_source")) or "Untagged", "c":ist_day(p.get("createdate")),
+         "r":REACHED[st], "cc":st in COLD_IDS, "won":st in WON_IDS, "dead":st in DEAD,
          "nm":p.get("dealname") or "", "ml":p.get("metadata_link") or "", "dvr":p.get("deal_value_range") or "",
          "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
          "rp":num(p,"num_repos"), "cost":num(p,"cost"),
          "att":None, "ind":None, "gm":None, "ss":None, "rr":None, "cn":None,
          "dc":None, "pi":None, "won_d":None}
-    if st != COLD:
+    if st not in COLD_IDS:
         funnel.append((len(rows), r["id"]))
     if d["r"] >= 5 or d["won"]:   # Script Results Received or beyond (even if metadata missing)
         hotnote.append((len(rows), r["id"]))

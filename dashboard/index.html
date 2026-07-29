@@ -130,12 +130,15 @@
     <a data-d="ceo"><span class="ic">📈</span> Executive (CEO)</a>
   </div>
   <div class="navlbl">Scope</div>
-  <div class="nav"><a class="on" style="cursor:default;background:var(--bg);color:var(--txt)"><span class="ic">🗂️</span> Pipeline: Scraped</a></div>
+  <div class="nav" id="pipenav">
+    <a data-pl="scraped" class="on"><span class="ic">🗂️</span> Scraped</a>
+    <a data-pl="campaign"><span class="ic">📣</span> Campaign</a>
+  </div>
 </aside>
 
 <main>
   <div class="head">
-    <div><h1 id="dttl">GTM Analysts Summary</h1><p id="subttl">Cold-call activity · Scraped pipeline</p></div>
+    <div><h1 id="dttl">GTM Analysts Summary</h1><p id="subttl">Cold-call activity</p></div>
     <div class="pill"><span class="dot"></span> Live from HubSpot · <span id="freshness"></span></div>
   </div>
 
@@ -181,31 +184,31 @@
 </main>
 
 <script>
-const F={data:null,dash:'gtm',gran:['day','day','day','day']};
+const F={data:null,dash:'gtm',pipeline:'scraped',gran:['day','day','day','day']};
 const A={blue:{c:'#1447e6',bg:'#eef2ff'},sky:{c:'#3d96ff',bg:'#eaf3ff'},amber:{c:'#f99c00',bg:'#fff4e5'},purple:{c:'#ac4bff',bg:'#f5ecff'}};
 const DASHBOARDS={
-  gtm:{name:'GTM Analyst',sub:'Cold-call activity · Scraped pipeline',def:'166420402',
+  gtm:{name:'GTM Analyst',sub:'Cold-call activity',def:'166420402',
     metrics:[
       {lbl:'To Reach Out',snap:'cc',icon:'📋',...A.blue},
       {lbl:'Calls Attempted',f:'att',icon:'📞',...A.sky},
       {lbl:'Connected & Interested',f:'ind',icon:'🤝',...A.amber},
       {lbl:'GMeets Fixed',f:'gm',icon:'📅',...A.purple}],
     graphs:[{t:'New leads assigned',f:'c'},{t:'Calls attempted',f:'att'},{t:'Connected & interested',f:'ind'},{t:'GMeets fixed',f:'gm'}]},
-  lead:{name:'Lead Manager',sub:'Meeting → script → results → negotiation · Scraped pipeline',def:'166322228',
+  lead:{name:'Lead Manager',sub:'Meeting → script → results → negotiation',def:'166322228',
     metrics:[
       {lbl:'GMeets Assigned',f:'gm',icon:'📅',...A.blue},
       {lbl:'Scripts Shared',f:'ss',icon:'📤',...A.sky},
       {lbl:'Script Results Received',f:'rr',icon:'📥',...A.amber},
       {lbl:'Commercial Negotiation',f:'cn',icon:'💬',...A.purple}],
     graphs:[{t:'GMeets assigned',f:'gm'},{t:'Scripts shared',f:'ss'},{t:'Script results received',f:'rr'},{t:'Commercial negotiation',f:'cn'}]},
-  closer:{name:'Lead Closer',sub:'Negotiation → contract → payment → won · Scraped pipeline',def:'166262056',
+  closer:{name:'Lead Closer',sub:'Negotiation → contract → payment → won',def:'166262056',
     metrics:[
       {lbl:'Commercial Negotiation',f:'cn',icon:'💬',...A.blue},
       {lbl:'Deal Contract Signed',f:'dc',icon:'✍️',...A.sky},
       {lbl:'Payment Initiation',f:'pi',icon:'💳',...A.amber},
       {lbl:'Closed / Won',f:'won_d',icon:'🏆',...A.purple}],
     graphs:[{t:'Commercial negotiation',f:'cn'},{t:'Contracts signed',f:'dc'},{t:'Payment initiation',f:'pi'},{t:'Closed / Won',f:'won_d'}]},
-  ceo:{name:'Executive Summary',sub:'Portfolio value & won economics · Scraped pipeline',def:'all',ceo:true},
+  ceo:{name:'Executive Summary',sub:'Portfolio value & won economics',def:'all',ceo:true},
 };
 const CEO_TARGET_LOC=40000000;
 
@@ -227,7 +230,7 @@ function rangeBounds(){
 function inRange(v,from,to){return v&&(!from||v>=from)&&(!to||v<=to);}
 function filteredMembers(){
   const m=document.getElementById('member').value,ty=document.getElementById('type').value;
-  return F.data.rows.filter(r=>(m==='all'||r.o===m)&&(ty==='all'||r.t===ty));
+  return F.data.rows.filter(r=>r.pl===F.pipeline&&(m==='all'||r.o===m)&&(ty==='all'||r.t===ty));
 }
 function fmtBig(n){n=+n||0;const s=n<0?'-':'';n=Math.abs(n);
   if(n>=1e9)return s+(n/1e9).toFixed(2)+'B';if(n>=1e6)return s+(n/1e6).toFixed(2)+'M';
@@ -298,7 +301,7 @@ function switchDash(d){
 function miniStat(l,i,v){return `<div class="ministat"><div class="i">${i}</div><div class="l">${l}</div><div class="v">${v}</div></div>`;}
 function renderCEO(){
   const _m=document.getElementById('member').value;   // Executive view spans ALL tags (member filter only)
-  const rows=F.data.rows.filter(r=>_m==='all'||r.o===_m);
+  const rows=F.data.rows.filter(r=>r.pl===F.pipeline&&(_m==='all'||r.o===_m));
   const mode=(document.getElementById('pvmode')||{}).value||'pipe';
   const set=mode==='won'?rows.filter(r=>r.won):rows.filter(r=>!r.won&&!r.dead);
   const sum=k=>set.reduce((a,r)=>a+(r[k]||0),0);
@@ -351,6 +354,11 @@ function init(){
     document.getElementById('fromwrap').style.display=c?'flex':'none';document.getElementById('towrap').style.display=c?'flex':'none';render();};
   ['member','type','from','to'].forEach(id=>document.getElementById(id).onchange=render);
   document.querySelectorAll('#dashnav a[data-d]').forEach(a=>a.onclick=()=>switchDash(a.dataset.d));
+  document.querySelectorAll('#pipenav a').forEach(a=>a.onclick=()=>{
+    F.pipeline=a.dataset.pl;
+    document.querySelectorAll('#pipenav a').forEach(x=>x.classList.toggle('on',x===a));
+    document.getElementById('type').value='all';document.getElementById('member').value='all';
+    render();});
   render();
 }
 fetch('./dashboard_data.json?_='+Date.now()).then(r=>r.json()).then(d=>{F.data=d;init();})
