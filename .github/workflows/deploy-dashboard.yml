@@ -9,7 +9,15 @@ name: Deploy Sales Dashboard
 on:
   workflow_dispatch: {}          # run manually anytime
   schedule:
-    - cron: "0 * * * *"          # hourly (UTC); change or remove as needed
+    # GitHub cron is UTC; IST is UTC+5:30. Refresh through the working day, then a final
+    # run at day close.
+    - cron: "30 4,6,8,10,12 * * *"   # 10:00, 12:00, 14:00, 16:00, 18:00 IST
+    - cron: "0 13 * * *"             # 18:30 IST — day close
+    # Backstop. GitHub's scheduled runs are best-effort and are regularly delayed, and
+    # occasionally dropped outright, so an exact 18:30 cannot be guaranteed by cron alone.
+    # The build is idempotent — it rebuilds from live HubSpot every time — so a second run
+    # simply republishes the same day with fresher data.
+    - cron: "20 13 * * *"            # 18:50 IST — covers a slipped or dropped day-close run
 
 permissions:
   contents: read

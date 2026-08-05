@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""CI-ready: pull the Scraped-pipeline dashboard data from HubSpot -> dashboard_data.json.
+"""CI-ready: pull BOTH deal pipelines from HubSpot -> dashboard_data.json.
 
-Uses each deal's STAGE-CHANGE HISTORY (for the funnel deals only) to get accurate,
-date-stamped milestones: when a call was attempted, when interested, when a GMeet was
-actually fixed. Deals sitting at Cold Call are skipped (no history call needed).
+Every metric is a count of TIMES A DEAL ENTERED a qualifying stage, on the day it entered,
+read from each deal's stage-change history. Only human moves (sourceType == CRM_UI) count;
+activity is credited to whoever made the move, assignment to whoever received the deal.
+
+Full specification: docs/sop/DASHBOARD_METRIC_SPEC.md
 
 Token: HUBSPOT_API_KEY env (CI) or local .env (hubspot_key=...).
 """
@@ -52,28 +54,86 @@ def call(path, method="GET", payload=None):
             return e.code, json.loads(e.read().decode() or "{}")
     return 429, {}
 
-# ---- stage->level maps built dynamically from BOTH pipelines (same SOP cadence, different stage ids) ----
+# ---- both pipelines, treated as one ----
+# Scraped and Campaign carry identical stage labels in identical order; only the internal
+# ids differ. Nothing is scoped by pipeline any more — every count is both, combined.
 PIPELINES = {"default": "scraped", "2425754306": "campaign"}
-LEVEL = {"Cold Call":0,"Call Attempted":1,"Interested":2,"GMeet Fixed":3,"Script Shared":4,
-    "Script Results Received":5,"Commercial Negotiation":6,"Deal Contract Signed":7,
-    "Data Migration Done":8,"Metadata Matched":9,"Payment Initiation":10,"Closed/Won":11}
-# WrongNumber is level 1, NOT 0: the caller actually dialled, so it counts as a call
-# attempt. WrongFit stays 0 because that lead was screened out and never dialled.
-DEAD_LEVEL = {"Dead/ColdCall/Not Interested":1,"Dead/ColdCall/WrongFit":0,
-    "Dead/ColdCall/WrongNumber":1,"Dead/Interested/NoShow":2,
-    "Dead/GMeet/wrong fit":3,"Dead/Gmeet/Privacy Concerns":3,"Dead/ResultsReceived/WrongFit-Rejected":5,
-    "Dead/Negotiation/Pricing":6,"Dead/Negotiation/Contractual":6}
-REACHED = {}; DEAD = set(); WON_IDS = set(); COLD_IDS = set()
+
+# A metric is the set of stages that, when a deal ENTERS one, means the thing happened.
+# Not a level threshold: `Dead/ColdCall/Not Interested` and `Dead/ColdCall/WrongNumber`
+# would sit at the same level, yet one means a human answered and the other means the
+# number was junk. "Calls connected" needs to separate exactly those two, so membership
+# has to be explicit.
+METRICS = {
+    # --- GTM analyst ---
+    # WrongFit is absent on purpose: that lead was screened out and never dialled.
+    "att":  {"No Pickup", "Dead/ColdCall/WrongNumber", "Dead/ColdCall/Not Interested",
+             "Dead/ColdCall/NoPickup", "Interested"},
+    "conn": {"Dead/ColdCall/Not Interested", "Interested"},
+    "gm":   {"GMeet Fixed"},
+    # --- lead manager ---
+    # Cancelled is absent on purpose: called off in advance, so no time was spent sitting in it.
+    "vc":   {"Dead/GMeet/NoShow", "Dead/GMeet/wrong fit", "Dead/GMeet/Privacy Concerns",
+             "Script Shared"},
+    "ss":   {"Script Shared"},
+    "rr":   {"Script Results Received"},
+    "ev":   {"Dead/ResultsReceived/WrongFit-Rejected", "Commercial Negotiation"},
+    "cn":   {"Commercial Negotiation"},
+    # --- lead closer ---  ("ev" is shown on this panel too, deliberately: both pods do it)
+    "neg":  {"Dead/Negotiation/Pricing", "Dead/Negotiation/Contractual", "Deal Contract Signed"},
+    "won_d": {"Closed/Won"},
+}
+# `Call Attempted` was retired on 2026-08-05 and its deals moved to `No Pickup`, but it
+# stays in the history of ~100 deals. Treat it as No Pickup so the series before that date
+# does not fall off a cliff.
+ALIAS = {"Call Attempted": "No Pickup", "Call Attempted (retired)": "No Pickup",
+         "Dead/Gmeet/Privacy Concerns": "Dead/GMeet/Privacy Concerns"}
+
+STAGE_LABEL = {}          # stage id -> canonical label, across both pipelines
+WON_IDS = set(); COLD_IDS = set(); DEAD = set(); ORDER = {}
+_SEQ = ["Cold Call","No Pickup","Interested","GMeet Fixed","Script Shared",
+        "Script Results Received","Commercial Negotiation","Deal Contract Signed",
+        "Data Migration Done","Metadata Matched","Payment Initiation","Closed/Won"]
+# How far a deal got before it died. A dead stage is not "off the end of the funnel" — it
+# marks the point the deal reached, so Dead/GMeet/* means it got as far as the GMeet.
+# Without this every dead deal sorts as 99 and the Hot & Won table fills with them.
+_DEAD_SEQ = {"Dead/ColdCall/WrongFit":0,          # screened out, never dialled
+             "Dead/ColdCall/Not Interested":1, "Dead/ColdCall/WrongNumber":1,
+             "Dead/ColdCall/NoPickup":1,
+             "Dead/Interested/NoShow":2,
+             "Dead/GMeet/NoShow":3, "Dead/GMeet/Cancelled":3,
+             "Dead/GMeet/wrong fit":3, "Dead/GMeet/Privacy Concerns":3,
+             "Dead/ScriptShared/NoShow":4,
+             "Dead/ResultsReceived/WrongFit-Rejected":5,
+             "Dead/Negotiation/Pricing":6, "Dead/Negotiation/Contractual":6}
 for _pid in PIPELINES:
     _s, _pp = call(f"/crm/v3/pipelines/deals/{_pid}")
     for st in _pp.get("stages", []):
-        sid, lab = st["id"], st["label"]
-        if lab in LEVEL:
-            REACHED[sid] = LEVEL[lab]
-            if lab == "Closed/Won": WON_IDS.add(sid)
-            if lab == "Cold Call": COLD_IDS.add(sid)
-        elif lab in DEAD_LEVEL:
-            REACHED[sid] = DEAD_LEVEL[lab]; DEAD.add(sid)
+        sid, lab = st["id"], ALIAS.get(st["label"], st["label"])
+        STAGE_LABEL[sid] = lab
+        if str(st["metadata"].get("isClosed")).lower() == "true": DEAD.add(sid)
+        if lab == "Closed/Won": WON_IDS.add(sid); DEAD.discard(sid)
+        if lab == "Cold Call": COLD_IDS.add(sid)
+        ORDER[sid] = _SEQ.index(lab) if lab in _SEQ else _DEAD_SEQ.get(lab, 0)
+
+def metrics_for(label):
+    """which metric keys does entering this stage satisfy"""
+    return [k for k, s in METRICS.items() if label in s]
+
+# Stage history identifies the actor by USER id; deals identify people by OWNER id. They are
+# separate namespaces in HubSpot and only coincide by luck, so map them explicitly.
+#
+# Why the actor matters: a GTM analyst logs GMeet Fixed and hands the deal over in the same
+# action, so by build time the deal belongs to the Lead Manager. Crediting activity to the
+# CURRENT owner would take that GMeet off the analyst who booked it — and the better the
+# handoff discipline, the more work gets misattributed. Assignment metrics stay owner-based
+# (they really are about who received the deal); activity metrics follow the actor.
+_s, _ow0 = call("/crm/v3/owners?limit=200")
+USER2OWNER = {str(o["userId"]): o["id"]
+              for o in (_ow0.get("results") or []) if o.get("userId")}
+def actor_owner(uid):
+    if uid is None: return ""
+    return USER2OWNER.get(str(uid), str(uid))
 
 def bucket_ls(ls):
     ls = (ls or "").lower()
@@ -110,46 +170,62 @@ funnel = []   # (index, deal_id) needing history
 hotnote = []  # (index, deal_id) for metric-bearing / won deals -> fetch note
 for r in deals:
     p = r["properties"]; oid = p.get("hubspot_owner_id"); st = p.get("dealstage")
-    if not oid or st not in REACHED:
+    if not oid or st not in STAGE_LABEL:
         continue
     d = {"o":oid, "pl":PIPELINES.get(p.get("pipeline"), "scraped"),
-         "t":p.get("scraped_type") or bucket_ls(p.get("lead_source")) or "Untagged", "c":ist_day(p.get("createdate")),
-         "r":REACHED[st], "cc":st in COLD_IDS, "won":st in WON_IDS, "dead":st in DEAD,
-         "nm":p.get("dealname") or "", "ml":p.get("metadata_link") or "", "dvr":p.get("deal_value_range") or "",
+         "t":p.get("scraped_type") or bucket_ls(p.get("lead_source")) or "Untagged",
+         "c":ist_day(p.get("createdate")),
+         "r":ORDER[st], "sl":STAGE_LABEL[st],
+         "cc":st in COLD_IDS, "won":st in WON_IDS, "dead":st in DEAD,
+         "nm":p.get("dealname") or "", "ml":p.get("metadata_link") or "",
+         "dvr":p.get("deal_value_range") or "",
          "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
          "rp":num(p,"num_repos"), "cost":num(p,"cost"),
-         "att":None, "ind":None, "gm":None, "ss":None, "rr":None, "cn":None,
-         "dc":None, "pi":None, "won_d":None}
-    if st not in COLD_IDS:
-        funnel.append((len(rows), r["id"]))
-    if d["r"] >= 5 or d["won"]:   # Script Results Received or beyond (even if metadata missing)
+         # per-metric list of IST days on which this deal ENTERED a qualifying stage.
+         # A list, not a single date: under the callback loop a deal legitimately hits the
+         # calling stages twice (No Pickup Monday, Not Interested Tuesday) and both are real
+         # dials. Keeping only the first would make the whole callback loop invisible.
+         "m": {k: [] for k in METRICS},
+         "asg": []}                       # IST days this deal was assigned to its owner
+    funnel.append((len(rows), r["id"]))   # every deal needs history now, incl. Cold Call
+    if d["r"] >= 5 or d["won"]:
         hotnote.append((len(rows), r["id"]))
     rows.append(d)
 
 print(f"{len(rows)} deals | fetching stage history for {len(funnel)} funnel deals...", file=sys.stderr)
 
 for i, (idx, did) in enumerate(funnel):
-    s, h = call(f"/crm/v3/objects/deals/{did}?propertiesWithHistory=dealstage")
-    entries = h.get("propertiesWithHistory", {}).get("dealstage", []) if s == 200 else []
-    # (reached-level, timestamp) for every stage this deal ever entered.
-    # A deal counts toward a milestone if it EVER reached that stage OR BEYOND
-    # (incl. dying at/after it, e.g. Dead/GMeet/* == reached the GMeet milestone).
-    evs = [(REACHED.get(e.get("value"), 0), e.get("timestamp")) for e in entries if e.get("timestamp")]
-    def first_at(thr):
-        ts = [t for lvl, t in evs if lvl >= thr]
-        return ist_day(min(ts)) if ts else None  # earliest date (IST) it hit that milestone-or-beyond
+    s, h = call(f"/crm/v3/objects/deals/{did}"
+                "?propertiesWithHistory=dealstage,hubspot_owner_id")
+    hist = h.get("propertiesWithHistory", {}) if s == 200 else {}
     d = rows[idx]
-    cur = d["r"]             # current furthest stage; only credit milestones it currently sits at/beyond
-    d["att"] = first_at(1) if cur >= 1 else None   # reached Call Attempted or beyond
-    d["ind"] = first_at(2) if cur >= 2 else None   # reached Interested or beyond
-    d["gm"]  = first_at(3) if cur >= 3 else None   # reached GMeet or beyond == a gmeet was fixed
-    d["ss"]  = first_at(4) if cur >= 4 else None   # reached Script Shared or beyond
-    d["rr"]  = first_at(5) if cur >= 5 else None   # reached Script Results or beyond
-    d["cn"]  = first_at(6) if cur >= 6 else None   # reached Commercial Negotiation or beyond
-    d["dc"]  = first_at(7) if cur >= 7 else None   # reached Deal Contract Signed or beyond
-    d["pi"]  = first_at(10) if cur >= 10 else None # reached Payment Initiation or beyond
-    d["won_d"] = first_at(11) if cur >= 11 else None  # reached Closed/Won
-    if (i+1) % 50 == 0: print(f"  {i+1}/{len(funnel)}", file=sys.stderr)
+
+    # ONLY human moves count. ~42% of stage-history entries are sourceType=INTEGRATION —
+    # bulk API writes, including our own migration of 245 deals. Counting those would have
+    # rendered that migration as the biggest calling day the company has ever had.
+    for e in hist.get("dealstage", []):
+        if e.get("sourceType") != "CRM_UI" or not e.get("timestamp"):
+            continue
+        lab = STAGE_LABEL.get(e.get("value"))
+        if not lab:                     # a stage that has since been deleted — skip, don't guess
+            continue
+        day = ist_day(e["timestamp"])
+        who = actor_owner(e.get("updatedByUserId"))
+        for k in metrics_for(lab):
+            ev = [day, who]
+            if ev not in d["m"][k]:     # same stage, same person, same day is one event
+                d["m"][k].append(ev)
+
+    # assignment is an OWNER change, not a stage change. createdate was the old proxy and it
+    # is wrong the moment a lead is reassigned.
+    for e in hist.get("hubspot_owner_id", []):
+        if e.get("value") == d["o"] and e.get("timestamp"):
+            day = ist_day(e["timestamp"])
+            if day not in d["asg"]: d["asg"].append(day)
+    if not d["asg"] and d["c"]:
+        d["asg"].append(d["c"])         # never reassigned — creation is when they got it
+
+    if (i+1) % 100 == 0: print(f"  {i+1}/{len(funnel)}", file=sys.stderr)
 
 import re as _re, html as _html
 print(f"fetching notes for {len(hotnote)} hot/won deals...", file=sys.stderr)

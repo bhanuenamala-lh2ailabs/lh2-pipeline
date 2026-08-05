@@ -53,7 +53,13 @@
   .seg button{background:none;border:none;color:var(--mut);padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600;transition:.14s}
   .seg button.on{background:var(--blue);color:#fff}
 
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:0}
+  /* Inputs are what the person controls; outcomes are what it produced. Keeping them in
+     one undifferentiated strip loses that distinction, which is the point of the split. */
+  .mgrp{margin-bottom:20px}
+  .mgrplbl{display:flex;align-items:center;gap:9px;font-size:10.5px;text-transform:uppercase;
+     letter-spacing:1.1px;color:var(--mut2);font-weight:700;margin:0 2px 10px}
+  .mgrplbl::after{content:'';flex:1;height:1px;background:var(--line)}
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:17px 18px;
      position:relative;overflow:hidden;box-shadow:var(--shadow)}
   .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent)}
@@ -129,11 +135,6 @@
     <a data-d="closer"><span class="ic">📞</span> Lead Closer</a>
     <a data-d="ceo"><span class="ic">📈</span> Executive (CEO)</a>
   </div>
-  <div class="navlbl">Scope</div>
-  <div class="nav" id="pipenav">
-    <a data-pl="scraped" class="on"><span class="ic">🗂️</span> Scraped</a>
-    <a data-pl="campaign"><span class="ic">📣</span> Campaign</a>
-  </div>
 </aside>
 
 <main>
@@ -184,32 +185,59 @@
 </main>
 
 <script>
-const F={data:null,dash:'gtm',pipeline:'scraped',gran:['day','day','day','day']};
-const A={blue:{c:'#1447e6',bg:'#eef2ff'},sky:{c:'#3d96ff',bg:'#eaf3ff'},amber:{c:'#f99c00',bg:'#fff4e5'},purple:{c:'#ac4bff',bg:'#f5ecff'}};
+const F={data:null,dash:'gtm',gran:['day','day','day','day','day','day']};
+const A={blue:{c:'#1447e6',bg:'#eef2ff'},sky:{c:'#3d96ff',bg:'#eaf3ff'},amber:{c:'#f99c00',bg:'#fff4e5'},purple:{c:'#ac4bff',bg:'#f5ecff'},green:{c:'#12A150',bg:'#e8f7ee'},rose:{c:'#e5484d',bg:'#fdecec'}};
+
+// Every metric is a count of TIMES A DEAL ENTERED a qualifying stage, on the day it
+// entered — not how many sit there now. `f` indexes the per-deal event lists the builder
+// emits. Scraped and Campaign are combined; there is no pipeline scope any more.
 const DASHBOARDS={
-  gtm:{name:'GTM Analyst',sub:'Cold-call activity',def:'166420402',
-    metrics:[
-      {lbl:'To Reach Out',snap:'cc',icon:'📋',...A.blue},
+  gtm:{name:'GTM Analyst',sub:'Introductory calls → first VC · both pipelines',def:'166420402',
+    inputs:[
+      {lbl:'Cold-Call Leads Assigned',f:'asg',icon:'📥',...A.blue},
       {lbl:'Calls Attempted',f:'att',icon:'📞',...A.sky},
-      {lbl:'Connected & Interested',f:'ind',icon:'🤝',...A.amber},
-      {lbl:'GMeets Fixed',f:'gm',icon:'📅',...A.purple}],
-    graphs:[{t:'New leads assigned',f:'c'},{t:'Calls attempted',f:'att'},{t:'Connected & interested',f:'ind'},{t:'GMeets fixed',f:'gm'}]},
-  lead:{name:'Lead Manager',sub:'Meeting → script → results → negotiation',def:'166322228',
-    metrics:[
-      {lbl:'GMeets Assigned',f:'gm',icon:'📅',...A.blue},
-      {lbl:'Scripts Shared',f:'ss',icon:'📤',...A.sky},
-      {lbl:'Script Results Received',f:'rr',icon:'📥',...A.amber},
-      {lbl:'Commercial Negotiation',f:'cn',icon:'💬',...A.purple}],
-    graphs:[{t:'GMeets assigned',f:'gm'},{t:'Scripts shared',f:'ss'},{t:'Script results received',f:'rr'},{t:'Commercial negotiation',f:'cn'}]},
-  closer:{name:'Lead Closer',sub:'Negotiation → contract → payment → won',def:'166262056',
-    metrics:[
-      {lbl:'Commercial Negotiation',f:'cn',icon:'💬',...A.blue},
-      {lbl:'Deal Contract Signed',f:'dc',icon:'✍️',...A.sky},
-      {lbl:'Payment Initiation',f:'pi',icon:'💳',...A.amber},
-      {lbl:'Closed / Won',f:'won_d',icon:'🏆',...A.purple}],
-    graphs:[{t:'Commercial negotiation',f:'cn'},{t:'Contracts signed',f:'dc'},{t:'Payment initiation',f:'pi'},{t:'Closed / Won',f:'won_d'}]},
-  ceo:{name:'Executive Summary',sub:'Portfolio value & won economics',def:'all',ceo:true},
+      {lbl:'Calls Connected',f:'conn',icon:'🤝',...A.amber}],
+    outcomes:[
+      {lbl:'VCs Setup',f:'gm',icon:'📅',...A.purple}],
+    graphs:'auto'},
+  lead:{name:'Lead Manager',sub:'VC → negotiation stage · both pipelines',def:'166322228',
+    inputs:[
+      {lbl:'GMeets Assigned',f:'gma',icon:'📅',...A.blue},
+      {lbl:'VCs Attended',f:'vc',icon:'🎥',...A.sky},
+      {lbl:'Scripts Shared',f:'ss',icon:'📤',...A.amber}],
+    outcomes:[
+      {lbl:'Script Outputs Received',f:'rr',icon:'📥',...A.purple},
+      {lbl:'Script Evaluations Conducted',f:'ev',icon:'🔍',...A.green},
+      {lbl:'Deals Moved to Negotiation',f:'cn',icon:'💬',...A.rose}],
+    graphs:'auto'},
+  closer:{name:'Lead Closer',sub:'Negotiation → deal closure · both pipelines',def:'166262056',
+    inputs:[
+      {lbl:'Script Evaluations Conducted',f:'ev',icon:'🔍',...A.blue},
+      {lbl:'Deal Negotiation Calls Conducted',f:'neg',icon:'💬',...A.amber}],
+    outcomes:[
+      {lbl:'Deals Closed',f:'won_d',icon:'🏆',...A.purple}],
+    graphs:'auto'},
+  ceo:{name:'Executive Summary',sub:'Portfolio value & won economics · both pipelines',def:'all',ceo:true},
 };
+
+// dates on which this deal satisfied metric `f`. Always an array, so KPI and chart code
+// never has to care whether a metric fires once or many times.
+function events(r,f,mem){
+  mem=mem||'all';
+  // ASSIGNMENT metrics — owner-based. These genuinely ask "who was this handed to",
+  // so the deal's current owner is the right answer.
+  if(f==='asg') return (mem==='all'||r.o===mem)?(r.asg||[]):[];
+  // GMeets Assigned is the SAME event as GMeets Fixed, seen from the receiving end.
+  // Booking a GMeet and handing the deal over is one action, so the two metrics must total
+  // identically — they differ only in who gets credited: the analyst who booked it, versus
+  // the manager it landed on. Hence same `gm` events, owner-attributed instead of actor-.
+  if(f==='gma') return (mem==='all'||r.o===mem)?(((r.m&&r.m.gm)||[]).map(e=>e[0])):[];
+  if(f==='c')   return (mem==='all'||r.o===mem)?(r.c?[r.c]:[]):[];
+  // ACTIVITY metrics — actor-based. Credit whoever actually made the move, not whoever
+  // owns the deal now; otherwise a handoff silently moves the work onto the next person.
+  const ev=(r.m&&r.m[f])||[];
+  return ev.filter(e=>mem==='all'||e[1]===mem).map(e=>e[0]);
+}
 const CEO_TARGET_LOC=40000000;
 
 function iso(d){return d.toISOString().slice(0,10);}
@@ -228,9 +256,11 @@ function rangeBounds(){
   return[from,to];
 }
 function inRange(v,from,to){return v&&(!from||v>=from)&&(!to||v<=to);}
+function selMember(){return document.getElementById('member').value;}
 function filteredMembers(){
-  const m=document.getElementById('member').value,ty=document.getElementById('type').value;
-  return F.data.rows.filter(r=>r.pl===F.pipeline&&(m==='all'||r.o===m)&&(ty==='all'||r.t===ty));
+  // NOT filtered by member — attribution is per-event, decided inside events()
+  const ty=document.getElementById('type').value;
+  return F.data.rows.filter(r=>(ty==='all'||r.t===ty));
 }
 function fmtBig(n){n=+n||0;const s=n<0?'-':'';n=Math.abs(n);
   if(n>=1e9)return s+(n/1e9).toFixed(2)+'B';if(n>=1e6)return s+(n/1e6).toFixed(2)+'M';
@@ -245,28 +275,36 @@ function render(){
 }
 function renderAnalyst(){
   const dash=DASHBOARDS[F.dash],rows=filteredMembers();const[from,to]=rangeBounds();
-  document.getElementById('kpis').innerHTML=dash.metrics.map(m=>{
+  const _mm=selMember();
+  const card=m=>{
     const snap=!!m.snap;
-    const v=snap?rows.filter(r=>r[m.snap]).length:rows.filter(r=>inRange(r[m.f],from,to)).length;
-    const sub=snap?'pending — not date-filtered':'in selected range';
+    const v=snap?rows.filter(r=>(_mm==='all'||r.o===_mm)&&r[m.snap]).length
+                :rows.reduce((a,r)=>a+events(r,m.f,_mm).filter(v=>inRange(v,from,to)).length,0);
+    const sub=snap?'pending — not date-filtered':'times reached, in range';
     return `<div class="kpi" style="--accent:${m.c};--accentbg:${m.bg}">
       <div class="ic">${m.icon}</div><div class="lbl">${m.lbl}</div>
       <div class="val">${v.toLocaleString()}</div><div class="sub">${sub}</div></div>`;
-  }).join('');
-  const g=dash.graphs;
+  };
+  const grp=(t,list)=>(list&&list.length)?`<div class="mgrp"><div class="mgrplbl">${t}</div>
+      <div class="kpis">${list.map(card).join('')}</div></div>`:'';
+  document.getElementById('kpis').className='';
+  document.getElementById('kpis').innerHTML=
+      grp('Input matrix · per day',dash.inputs)+grp('Outcome matrix · per day',dash.outcomes);
+  const g=(dash.graphs==='auto')?[...(dash.inputs||[]),...(dash.outcomes||[])]
+        .map(m=>({t:m.lbl,f:m.f})):dash.graphs;
   document.getElementById('graphs').innerHTML=g.map((gr,i)=>`
     <div class="panel">
       <div class="phead"><div><h3>${gr.t}</h3><div class="psub"></div></div>
         <div class="seg" data-gi="${i}"><button data-g="day" class="${F.gran[i]==='day'?'on':''}">Day</button><button data-g="week" class="${F.gran[i]==='week'?'on':''}">Week</button></div></div>
       <div class="chartwrap"><div class="tip" id="tip${i}"></div><div id="chart${i}"></div></div>
     </div>`).join('');
-  g.forEach((gr,i)=>drawBars('chart'+i,'tip'+i,rows,gr.f,F.gran[i]||'day',from,to,gr.t));
+  g.forEach((gr,i)=>drawBars('chart'+i,'tip'+i,rows,gr.f,F.gran[i]||'day',from,to,gr.t,selMember()));
   document.querySelectorAll('#graphs .seg').forEach(seg=>{const gi=+seg.dataset.gi;
     seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');F.gran[gi]=b.dataset.g;render();});});
 }
-function drawBars(el,tipId,rows,field,gran,from,to,label){
+function drawBars(el,tipId,rows,field,gran,from,to,label,mem){
   const map=new Map();
-  rows.forEach(r=>{const v=r[field];if(inRange(v,from,to)){const k=pkey(v,gran);map.set(k,(map.get(k)||0)+1);}});
+  rows.forEach(r=>events(r,field,mem).forEach(v=>{if(inRange(v,from,to)){const k=pkey(v,gran);map.set(k,(map.get(k)||0)+1);}}));
   const keys=[...map.keys()].sort();const box=document.getElementById(el);
   if(!keys.length){box.innerHTML='<div class="empty">No '+label.toLowerCase()+' in this range.</div>';return;}
   const W=560,H=210,pad={l:30,r:10,t:12,b:26},iw=W-pad.l-pad.r,ih=H-pad.t-pad.b;
@@ -301,7 +339,7 @@ function switchDash(d){
 function miniStat(l,i,v){return `<div class="ministat"><div class="i">${i}</div><div class="l">${l}</div><div class="v">${v}</div></div>`;}
 function renderCEO(){
   const _m=document.getElementById('member').value;   // Executive view spans ALL tags (member filter only)
-  const rows=F.data.rows.filter(r=>r.pl===F.pipeline&&(_m==='all'||r.o===_m));
+  const rows=F.data.rows.filter(r=>(_m==='all'||r.o===_m));
   const mode=(document.getElementById('pvmode')||{}).value||'pipe';
   const set=mode==='won'?rows.filter(r=>r.won):rows.filter(r=>!r.won&&!r.dead);
   const sum=k=>set.reduce((a,r)=>a+(r[k]||0),0);
@@ -329,7 +367,7 @@ function renderCEO(){
     const dots=pts.map(p=>`<circle cx="${pad.l+iw*(p.x/mx)}" cy="${pad.t+ih-ih*(p.y/my)}" r="5" fill="#f99c00" stroke="#fff"/>`).join('');
     sc.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${g}<text x="${pad.l+iw/2}" y="${H}" text-anchor="middle" class="axlbl">cost / deal →</text>${dots}</svg>`;}
   // Hot & Won deals table
-  const STG={0:'Cold Call',1:'Call Attempted',2:'Interested',3:'GMeet Fixed',4:'Script Shared',5:'Script Results',6:'Commercial Nego',7:'Contract Signed',8:'Data Migration',9:'Metadata Matched',10:'Payment Init',11:'Closed/Won'};
+  const STG={0:'Cold Call',1:'No Pickup',2:'Interested',3:'GMeet Fixed',4:'Script Shared',5:'Script Results',6:'Commercial Nego',7:'Contract Signed',8:'Data Migration',9:'Metadata Matched',10:'Payment Init',11:'Closed/Won'};
   const esc=s=>(s||'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
   const hd=rows.filter(r=>r.r>=5||r.won).sort((a,b)=>(b.won-a.won)||(b.r-a.r)||(b.loc-a.loc));
   const hdt=document.getElementById('hotdeals');
@@ -354,11 +392,6 @@ function init(){
     document.getElementById('fromwrap').style.display=c?'flex':'none';document.getElementById('towrap').style.display=c?'flex':'none';render();};
   ['member','type','from','to'].forEach(id=>document.getElementById(id).onchange=render);
   document.querySelectorAll('#dashnav a[data-d]').forEach(a=>a.onclick=()=>switchDash(a.dataset.d));
-  document.querySelectorAll('#pipenav a').forEach(a=>a.onclick=()=>{
-    F.pipeline=a.dataset.pl;
-    document.querySelectorAll('#pipenav a').forEach(x=>x.classList.toggle('on',x===a));
-    document.getElementById('type').value='all';document.getElementById('member').value='all';
-    render();});
   render();
 }
 fetch('./dashboard_data.json?_='+Date.now()).then(r=>r.json()).then(d=>{F.data=d;init();})
