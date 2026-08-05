@@ -102,8 +102,15 @@
   .ministat .l{font-size:11px;color:var(--mut);font-weight:600}
   .ministat .v{font-size:23px;font-weight:800;letter-spacing:-.6px;margin-top:3px}
   .target{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:15px}
-  .target .tt{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-bottom:9px}
-  .target .tt b{color:var(--txt);font-weight:700}
+  .target .tt,.trow .tt{display:flex;justify-content:space-between;align-items:baseline;gap:14px;
+     font-size:12.5px;color:var(--mut);margin-bottom:8px}
+  .target .tt b,.trow .tt b{color:var(--txt);font-weight:700;white-space:nowrap}
+  .trow{padding:14px 16px;background:var(--bg);border:1px solid var(--line2);border-radius:11px}
+  .trow+.trow{margin-top:12px}
+  .trow .tlbl{font-weight:700;color:var(--txt);font-size:13px}
+  .trow .tsub{font-size:11px;color:var(--mut2);margin-top:7px}
+  .tgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+  .tgrid .trow+.trow{margin-top:0}
   .tbar{height:16px;border-radius:8px;background:#ececef;overflow:hidden;border:1px solid var(--line)}
   .tbar .tf{height:100%;border-radius:8px;background:linear-gradient(90deg,var(--blue),var(--sky));transition:width .6s}
   .bkt{display:flex;align-items:center;gap:12px;margin-bottom:11px;font-size:12.5px}
@@ -149,10 +156,6 @@
 
   <div class="controls">
     <div class="ctl"><label>Member</label><select id="member"></select></div>
-    <div class="ctl"><label>Lead type</label>
-      <select id="type"><option value="ITservices">IT Services</option>
-        <option value="Distressed startups">Distressed startups</option>
-        <option value="all">All types</option></select></div>
     <div class="ctl"><label>Date range</label>
       <select id="preset"><option value="all">All time</option><option value="mtd">This month</option>
         <option value="30">Last 30 days</option><option value="wtd">This week (from Mon)</option>
@@ -176,11 +179,10 @@
     </div>
     <div class="panel" style="margin-bottom:16px">
       <div class="cardhead">
-        <div><h3>Portfolio Value</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Cumulative code assets · scale = LoC</div></div>
-        <div class="ctl"><label>Set</label><select id="pvmode"><option value="pipe">In Pipeline</option><option value="won">Won</option></select></div>
+        <div><h3>Portfolio Value</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Code assets acquired to date · won deals only</div></div>
+
       </div>
-      <div class="statrow" id="pvstats"></div>
-      <div class="target" id="pvtarget"></div>
+      <div class="statrow three" id="pvstats"></div>
     </div>
     <div class="grid2">
       <div class="panel"><div class="phead"><div><h3>Code Size Distribution</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Deals bucketed by lines of code</div></div></div><div id="locbuckets"></div></div>
@@ -188,7 +190,7 @@
         <div class="statrow three" id="wonstats"></div><div class="chartwrap"><div class="tip" id="tip3"></div><div id="scatter"></div></div></div>
     </div>
     <div class="panel" style="margin-top:16px">
-      <div class="phead"><div><h3>Hot &amp; Won Deals</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Code metadata, pricing, notes &amp; links to script results</div></div></div>
+      <div class="phead"><div><h3>Hot &amp; Won Deals</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Live and won deals to date · dead deals only from this week</div></div></div>
       <div style="overflow-x:auto"><div id="hotdeals"></div></div>
     </div>
   </div>
@@ -236,7 +238,11 @@ const DASHBOARDS={
       {lbl:'Deal Negotiation Calls Conducted',f:'neg',icon:'💬',...A.amber}],
     outcomes:[
       {lbl:'Deals Closed',f:'won_d',icon:'🏆',...A.purple}],
-    graphs:'auto'},
+    graphs:'auto',
+    // "Weekly Target Volume (LoC) with quality" — the closer's quota is the August sprint
+    // target for the week, so the same table is shown here rather than a second set of
+    // numbers that could drift from it.
+    sprint:true},
   ceo:{name:'Executive Summary',sub:'Portfolio value & won economics · both pipelines',def:'all',ceo:true},
 };
 
@@ -273,7 +279,7 @@ const SPRINT=[
 // API — the asset is ours regardless of who moved the stage. Change this key to re-base.
 const SPRINT_BASIS='won_any';
 
-function renderSprint(rows){
+function renderSprint(rows,el){
   const today=iso(new Date());
   const body=SPRINT.map(w=>{
     const loc=rows.reduce((a,r)=>a+((r[SPRINT_BASIS]||[])
@@ -296,7 +302,7 @@ function renderSprint(rows){
   const gotT=done.reduce((a,w)=>a+rows.reduce((b,r)=>b+((r[SPRINT_BASIS]||[])
         .some(x=>x>=w.from&&x<=w.to)?(r.loc||0):0),0),0)/1e6;
   const wantT=done.reduce((a,w)=>a+w.target,0);
-  document.getElementById('sprint').innerHTML=`<table class="hdt">
+  document.getElementById(el||'sprint').innerHTML=`<table class="hdt">
     <thead><tr><th style="width:44px">S.No.</th><th>Week</th><th style="text-align:right">Target LoC (Mn)</th>
       <th style="text-align:right">Actual LoC procured</th><th>Achievement</th></tr></thead>
     <tbody>${body}</tbody>
@@ -324,9 +330,9 @@ function rangeBounds(){
 function inRange(v,from,to){return v&&(!from||v>=from)&&(!to||v<=to);}
 function selMember(){return document.getElementById('member').value;}
 function filteredMembers(){
-  // NOT filtered by member — attribution is per-event, decided inside events()
-  const ty=document.getElementById('type').value;
-  return F.data.rows.filter(r=>(ty==='all'||r.t===ty));
+  // NOT filtered by member — attribution is per-event, decided inside events().
+  // Lead type is no longer a filter either: every view is all types, always.
+  return F.data.rows;
 }
 function fmtBig(n){n=+n||0;const s=n<0?'-':'';n=Math.abs(n);
   if(n>=1e9)return s+(n/1e9).toFixed(2)+'B';if(n>=1e6)return s+(n/1e6).toFixed(2)+'M';
@@ -357,6 +363,15 @@ function renderAnalyst(){
   document.getElementById('kpis').innerHTML=
       grp('Input matrix · per day',dash.inputs)+grp('Outcome matrix · per day',dash.outcomes);
   renderTargets(dash,rows,from,to);
+  if(dash.sprint){                       // weekly LoC volume target, same source as Executive
+    const box=document.getElementById('targets');
+    box.insertAdjacentHTML('beforeend',
+      `<div class="panel" style="margin-bottom:16px"><div class="phead"><div>
+         <h3>Weekly Target Volume (LoC)</h3>
+         <div class="psub">August sprint · procured against weekly target</div></div></div>
+       <div style="overflow-x:auto"><div id="sprint2"></div></div></div>`);
+    renderSprint(F.data.rows,'sprint2');
+  }
   const g=(dash.graphs==='auto')?[...(dash.inputs||[]),...(dash.outcomes||[])]
         .map(m=>({t:m.lbl,f:m.f})):dash.graphs;
   document.getElementById('graphs').innerHTML=g.map((gr,i)=>`
@@ -400,11 +415,12 @@ function renderTargets(dash,rows,from,to){
     const want=Math.round(perPeriod(m)*periods*team);
     const pct=want?Math.min(100,Math.round(got/want*100)):0;
     const col=pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--blue)';
-    return `<div style="margin-bottom:14px">
-      <div class="tt"><span>${m.lbl}</span><b>${got.toLocaleString()} / ${want.toLocaleString()} &nbsp;<span style="color:${col}">${pct}%</span></b></div>
-      <div class="tbar"><div class="tf" style="width:${pct}%;background:${col}"></div></div>
-      <div style="font-size:11px;color:var(--mut2);margin-top:5px">
-        ${(+perPeriod(m).toFixed(1))} per ${cad==='daily'?'day':'week'}${team>1?` × ${team} members`:''}
+    return `<div class="trow">
+      <div class="tt"><span class="tlbl">${m.lbl}</span>
+        <b>${got.toLocaleString()} <span style="color:var(--mut2);font-weight:600">/ ${want.toLocaleString()}</span>
+        &nbsp;<span style="color:${col}">${pct}%</span></b></div>
+      <div class="tbar" style="height:12px"><div class="tf" style="width:${pct}%;background:${col}"></div></div>
+      <div class="tsub">${(+perPeriod(m).toFixed(1))} per ${cad==='daily'?'day':'week'}${team>1?` × ${team} members`:''}
         · ${cad==='daily'?wd+' working day'+(wd===1?'':'s'):(+periods.toFixed(1))+' week'+(periods===1?'':'s')} in range</div>
     </div>`;}).join('');
   box.innerHTML=`<div class="panel" style="margin-bottom:16px">
@@ -413,7 +429,7 @@ function renderTargets(dash,rows,from,to){
       <div class="seg" id="tcadseg">
         <button data-c="daily" class="${cad==='daily'?'on':''}">Daily</button>
         <button data-c="weekly" class="${cad==='weekly'?'on':''}">Weekly</button>
-      </div></div>${bars}</div>`;
+      </div></div><div class="tgrid">${bars}</div></div>`;
   box.querySelectorAll('#tcadseg button').forEach(b=>b.onclick=()=>{F.tcad=b.dataset.c;render();});
 }
 
@@ -456,26 +472,22 @@ function renderCEO(){
   renderSprint(F.data.rows);
   const _m=document.getElementById('member').value;   // Executive view spans ALL tags (member filter only)
   const rows=F.data.rows.filter(r=>(_m==='all'||r.o===_m));
-  const mode=(document.getElementById('pvmode')||{}).value||'pipe';
-  const set=mode==='won'?rows.filter(r=>r.won):rows.filter(r=>!r.won&&!r.dead);
+  // Won only — "portfolio" means what we actually hold, not what might yet land.
+  const set=rows.filter(r=>r.won);
   const sum=k=>set.reduce((a,r)=>a+(r[k]||0),0);
-  const loc=sum('loc');
-  document.getElementById('pvstats').innerHTML=[['Lines of Code','📏',fmtBig(loc)],['Pull Requests','🔀',fmtBig(sum('pr'))],
-    ['Projects','📦',fmtBig(sum('pj'))],['Repos','🗄️',fmtBig(sum('rp'))]].map(a=>miniStat(...a)).join('');
-  const pct=Math.min(100,loc/CEO_TARGET_LOC*100);
-  document.getElementById('pvtarget').innerHTML=
-    `<div class="tt"><span>Target progress — <b>${fmtBig(loc)}</b> of <b>${fmtBig(CEO_TARGET_LOC)}</b> LoC</span><b>${pct.toFixed(1)}%</b></div>
-     <div class="tbar"><div class="tf" style="width:${pct}%"></div></div>`;
+  document.getElementById('pvstats').innerHTML=[['Lines of Code','📏',fmtBig(sum('loc'))],
+    ['Pull Requests','🔀',fmtBig(sum('pr'))],['Projects','📦',fmtBig(sum('pj'))]]
+    .map(a=>miniStat(...a)).join('');
   const wl=rows.filter(r=>r.loc>0),lb=document.getElementById('locbuckets');
   if(!wl.length)lb.innerHTML='<div class="awaiting">Awaiting LoC inputs from Lead Managers.<br>Buckets fill once deals carry code sizes.</div>';
   else{const B=[['<50k',0,5e4],['50–100k',5e4,1e5],['100–250k',1e5,2.5e5],['250–500k',2.5e5,5e5],['500k–1M',5e5,1e6],['1M+',1e6,Infinity]];
     const c=B.map(b=>wl.filter(r=>r.loc>=b[1]&&r.loc<b[2]).length),mx=Math.max(...c,1);
     lb.innerHTML=B.map((b,i)=>`<div class="bkt"><span class="bl">${b[0]}</span><span class="bb"><span class="bf" style="width:${c[i]/mx*100}%"></span></span><span class="bn">${c[i]}</span></div>`).join('');}
-  const won=rows.filter(r=>r.won),tC=won.reduce((a,r)=>a+(r.cost||0),0),tL=won.reduce((a,r)=>a+(r.loc||0),0),cph=tL?tC/tL*1e5:0;
+  const won=rows.filter(r=>r.won),tC=won.reduce((a,r)=>a+(r.cost||0),0),tL=won.reduce((a,r)=>a+(r.loc||0),0),cph=tL?tC/tL*1e6:0;
   document.getElementById('wonstats').innerHTML=[['Deals Won','🏆',won.length],['Total Cost','💰',tC?'$'+fmtBig(tC):'—'],
-    ['Cost / 100k LoC','⚖️',cph?'$'+fmtBig(cph):'—']].map(a=>miniStat(...a)).join('');
-  const pts=won.filter(r=>r.cost>0&&r.loc>0).map(r=>({x:r.cost,y:r.cost/(r.loc/1e5)})),sc=document.getElementById('scatter');
-  if(!pts.length)sc.innerHTML='<div class="awaiting">Awaiting won deals with cost + LoC.<br>Each plots as cost/deal (x) vs cost per 100k LoC (y).</div>';
+    ['Cost / 1M LoC','⚖️',cph?'$'+fmtBig(cph):'—']].map(a=>miniStat(...a)).join('');
+  const pts=won.filter(r=>r.cost>0&&r.loc>0).map(r=>({x:r.cost,y:r.cost/(r.loc/1e6)})),sc=document.getElementById('scatter');
+  if(!pts.length)sc.innerHTML='<div class="awaiting">Awaiting won deals with cost + LoC.<br>Each plots as cost/deal (x) vs cost per 1M LoC (y).</div>';
   else{const W=540,H=230,pad={l:52,r:14,t:12,b:32},iw=W-pad.l-pad.r,ih=H-pad.t-pad.b;
     const mx=Math.max(...pts.map(p=>p.x))*1.1,my=Math.max(...pts.map(p=>p.y))*1.1;
     let g='';for(let i=0;i<=4;i++){const y=pad.t+ih-ih*i/4,x=pad.l+iw*i/4;
@@ -485,7 +497,18 @@ function renderCEO(){
   // Hot & Won deals table
   const STG={0:'Cold Call',1:'No Pickup',2:'Interested',3:'GMeet Fixed',4:'Script Shared',5:'Script Results',6:'Commercial Nego',7:'Contract Signed',8:'Data Migration',9:'Metadata Matched',10:'Payment Init',11:'Closed/Won'};
   const esc=s=>(s||'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
-  const hd=rows.filter(r=>r.r>=5||r.won).sort((a,b)=>(b.won-a.won)||(b.r-a.r)||(b.loc-a.loc));
+  // Live and won deals show cumulatively — the portfolio is the whole history. Dead ones
+  // show ONLY if they died in the current week: a dead deal is news while it is fresh, and
+  // a permanent list of every loss buries the deals someone can still act on.
+  const _t=new Date(), _wd=(_t.getDay()+6)%7;
+  const _mon=new Date(_t); _mon.setDate(_t.getDate()-_wd);
+  const weekFrom=iso(_mon), weekTo=iso(_t);
+  const diedThisWeek=r=>{
+    const days=Object.values(r.m||{}).flat().map(e=>Array.isArray(e)?e[0]:e);
+    return days.some(d=>d>=weekFrom&&d<=weekTo);
+  };
+  const hd=rows.filter(r=>(r.r>=5||r.won)&&(!r.dead||diedThisWeek(r)))
+               .sort((a,b)=>(b.won-a.won)||(b.r-a.r)||(b.loc-a.loc));
   const hdt=document.getElementById('hotdeals');
   if(!hd.length)hdt.innerHTML='<div class="awaiting">No deals carry code metadata yet.</div>';
   else hdt.innerHTML='<table class="hdt"><thead><tr><th>Deal</th><th>Stage</th><th>Proj</th><th>LoC</th><th>PRs</th><th>LoC/PR</th><th>Price</th><th>Value range</th><th>Link</th><th>Note</th></tr></thead><tbody>'+
@@ -503,10 +526,9 @@ function init(){
   const sel=document.getElementById('member');
   sel.innerHTML='<option value="all">All members</option>'+F.data.core.map(([id,nm])=>`<option value="${id}">${nm}</option>`).join('');
   document.getElementById('freshness').textContent=F.data.generated||'—';
-  document.getElementById('pvmode').onchange=render;
   document.getElementById('preset').onchange=e=>{const c=e.target.value==='custom';
     document.getElementById('fromwrap').style.display=c?'flex':'none';document.getElementById('towrap').style.display=c?'flex':'none';render();};
-  ['member','type','from','to'].forEach(id=>document.getElementById(id).onchange=render);
+  ['member','from','to'].forEach(id=>document.getElementById(id).onchange=render);
   document.querySelectorAll('#dashnav a[data-d]').forEach(a=>a.onclick=()=>switchDash(a.dataset.d));
   render();
 }
