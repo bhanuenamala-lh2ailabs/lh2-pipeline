@@ -118,7 +118,11 @@
     aside{width:100%;height:auto;position:static;padding:12px 14px;border-right:none;border-bottom:1px solid var(--line)}
     .brand{padding:2px 4px 12px}.nav{display:flex;flex-direction:row;gap:8px;overflow-x:auto}
     .nav a{white-space:nowrap;flex-shrink:0}.nav a.soon{display:none}
-    aside .navlbl,aside .nav+.navlbl,aside .nav:last-of-type{display:none}
+    /* Hide the section label only. This previously also carried
+       `aside .nav:last-of-type{display:none}` to drop the Scope toggle on mobile — but once
+       that toggle was removed, #dashnav became the last .nav and the rule hid the dashboard
+       switcher itself, leaving no way to change panel on a phone. */
+    aside .navlbl{display:none}
     main{padding:16px 14px 40px}.kpis,.statrow,.statrow.three,.grid2{grid-template-columns:1fr 1fr}
     .grid2{grid-template-columns:1fr}
   }
@@ -160,6 +164,7 @@
 
   <div id="analystView">
     <div class="kpis" id="kpis"></div>
+    <div id="targets"></div>
     <div class="grid2" id="graphs"></div>
   </div>
 
@@ -185,7 +190,7 @@
 </main>
 
 <script>
-const F={data:null,dash:'gtm',gran:['day','day','day','day','day','day']};
+const F={data:null,dash:'gtm',tcad:'daily',gran:['day','day','day','day','day','day']};
 const A={blue:{c:'#1447e6',bg:'#eef2ff'},sky:{c:'#3d96ff',bg:'#eaf3ff'},amber:{c:'#f99c00',bg:'#fff4e5'},purple:{c:'#ac4bff',bg:'#f5ecff'},green:{c:'#12A150',bg:'#e8f7ee'},rose:{c:'#e5484d',bg:'#fdecec'}};
 
 // Every metric is a count of TIMES A DEAL ENTERED a qualifying stage, on the day it
@@ -199,7 +204,13 @@ const DASHBOARDS={
       {lbl:'Calls Connected',f:'conn',icon:'🤝',...A.amber}],
     outcomes:[
       {lbl:'VCs Setup',f:'gm',icon:'📅',...A.purple}],
-    graphs:'auto'},
+    graphs:'auto',
+    // Quota, as set for the role. `per` is the cadence it was written in; the Daily/Weekly
+    // toggle just re-expresses it. `team` is how many people share it, used when the member
+    // filter is All — the GTM target is written per team member.
+    targets:{per:'daily',team:2,items:[
+      {f:'conn',lbl:'Connected calls',v:40},
+      {f:'gm',  lbl:'VCs set up',     v:5}]}},
   lead:{name:'Lead Manager',sub:'VC → negotiation stage · both pipelines',def:'166322228',
     inputs:[
       {lbl:'GMeets Assigned',f:'gma',icon:'📅',...A.blue},
@@ -209,7 +220,11 @@ const DASHBOARDS={
       {lbl:'Script Outputs Received',f:'rr',icon:'📥',...A.purple},
       {lbl:'Script Evaluations Conducted',f:'ev',icon:'🔍',...A.green},
       {lbl:'Deals Moved to Negotiation',f:'cn',icon:'💬',...A.rose}],
-    graphs:'auto'},
+    graphs:'auto',
+    targets:{per:'weekly',team:1,items:[
+      {f:'vc',lbl:'VCs attended',          v:40},
+      {f:'ss',lbl:'Scripts shared',        v:25},
+      {f:'rr',lbl:'Script outputs received',v:15}]}},
   closer:{name:'Lead Closer',sub:'Negotiation → deal closure · both pipelines',def:'166262056',
     inputs:[
       {lbl:'Script Evaluations Conducted',f:'ev',icon:'🔍',...A.blue},
@@ -290,6 +305,7 @@ function renderAnalyst(){
   document.getElementById('kpis').className='';
   document.getElementById('kpis').innerHTML=
       grp('Input matrix · per day',dash.inputs)+grp('Outcome matrix · per day',dash.outcomes);
+  renderTargets(dash,rows,from,to);
   const g=(dash.graphs==='auto')?[...(dash.inputs||[]),...(dash.outcomes||[])]
         .map(m=>({t:m.lbl,f:m.f})):dash.graphs;
   document.getElementById('graphs').innerHTML=g.map((gr,i)=>`
@@ -302,6 +318,54 @@ function renderAnalyst(){
   document.querySelectorAll('#graphs .seg').forEach(seg=>{const gi=+seg.dataset.gi;
     seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');F.gran[gi]=b.dataset.g;render();});});
 }
+// Working days in the range. Weekends are excluded deliberately: a quota of 40 connected
+// calls a day is a quota for days somebody works. Counting Saturdays would make every
+// target unreachable and the bar meaningless.
+function workingDays(from,to,rows){
+  if(!from||!to){                       // "All time" — fall back to the data's own span
+    let lo=null,hi=null;
+    rows.forEach(r=>{
+      const all=[...(r.asg||[]),...Object.values(r.m||{}).flat().map(e=>Array.isArray(e)?e[0]:e)];
+      all.forEach(d=>{if(d){if(!lo||d<lo)lo=d;if(!hi||d>hi)hi=d;}});});
+    from=from||lo; to=to||hi;
+    if(!from||!to) return 1;
+  }
+  let n=0;const d=new Date(from+'T00:00:00'),end=new Date(to+'T00:00:00');
+  while(d<=end){const wd=d.getDay();if(wd!==0&&wd!==6)n++;d.setDate(d.getDate()+1);}
+  return Math.max(1,n);
+}
+
+function renderTargets(dash,rows,from,to){
+  const box=document.getElementById('targets');
+  if(!dash.targets){box.innerHTML='';return;}
+  const t=dash.targets,mem=selMember(),cad=F.tcad;
+  const wd=workingDays(from,to,rows);
+  const periods=cad==='daily'?wd:wd/5;              // a working week is 5 days
+  // The quota was written for one cadence; re-express it in the other.
+  const perPeriod=m=>t.per===cad?m.v:(t.per==='daily'?m.v*5:m.v/5);
+  const team=mem==='all'?t.team:1;                  // "per team member" when All is selected
+  const bars=t.items.map(m=>{
+    const got=rows.reduce((a,r)=>a+events(r,m.f,mem).filter(v=>inRange(v,from,to)).length,0);
+    const want=Math.round(perPeriod(m)*periods*team);
+    const pct=want?Math.min(100,Math.round(got/want*100)):0;
+    const col=pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--blue)';
+    return `<div style="margin-bottom:14px">
+      <div class="tt"><span>${m.lbl}</span><b>${got.toLocaleString()} / ${want.toLocaleString()} &nbsp;<span style="color:${col}">${pct}%</span></b></div>
+      <div class="tbar"><div class="tf" style="width:${pct}%;background:${col}"></div></div>
+      <div style="font-size:11px;color:var(--mut2);margin-top:5px">
+        ${(+perPeriod(m).toFixed(1))} per ${cad==='daily'?'day':'week'}${team>1?` × ${team} members`:''}
+        · ${cad==='daily'?wd+' working day'+(wd===1?'':'s'):(+periods.toFixed(1))+' week'+(periods===1?'':'s')} in range</div>
+    </div>`;}).join('');
+  box.innerHTML=`<div class="panel" style="margin-bottom:16px">
+    <div class="phead"><div><h3>Targets</h3>
+      <div class="psub">achieved vs quota over the selected range · weekends excluded</div></div>
+      <div class="seg" id="tcadseg">
+        <button data-c="daily" class="${cad==='daily'?'on':''}">Daily</button>
+        <button data-c="weekly" class="${cad==='weekly'?'on':''}">Weekly</button>
+      </div></div>${bars}</div>`;
+  box.querySelectorAll('#tcadseg button').forEach(b=>b.onclick=()=>{F.tcad=b.dataset.c;render();});
+}
+
 function drawBars(el,tipId,rows,field,gran,from,to,label,mem){
   const map=new Map();
   rows.forEach(r=>events(r,field,mem).forEach(v=>{if(inRange(v,from,to)){const k=pkey(v,gran);map.set(k,(map.get(k)||0)+1);}}));
