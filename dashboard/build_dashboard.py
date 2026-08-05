@@ -57,7 +57,10 @@ PIPELINES = {"default": "scraped", "2425754306": "campaign"}
 LEVEL = {"Cold Call":0,"Call Attempted":1,"Interested":2,"GMeet Fixed":3,"Script Shared":4,
     "Script Results Received":5,"Commercial Negotiation":6,"Deal Contract Signed":7,
     "Data Migration Done":8,"Metadata Matched":9,"Payment Initiation":10,"Closed/Won":11}
-DEAD_LEVEL = {"Dead/ColdCall/Not Interested":1,"Dead/ColdCall/WrongFit":0,"Dead/Interested/NoShow":2,
+# WrongNumber is level 1, NOT 0: the caller actually dialled, so it counts as a call
+# attempt. WrongFit stays 0 because that lead was screened out and never dialled.
+DEAD_LEVEL = {"Dead/ColdCall/Not Interested":1,"Dead/ColdCall/WrongFit":0,
+    "Dead/ColdCall/WrongNumber":1,"Dead/Interested/NoShow":2,
     "Dead/GMeet/wrong fit":3,"Dead/Gmeet/Privacy Concerns":3,"Dead/ResultsReceived/WrongFit-Rejected":5,
     "Dead/Negotiation/Pricing":6,"Dead/Negotiation/Contractual":6}
 REACHED = {}; DEAD = set(); WON_IDS = set(); COLD_IDS = set()
@@ -176,8 +179,20 @@ for idx, did in hotnote:
         note = " · ".join(keep)
     rows[idx]["note"] = note[:260]
 
-CORE = [("166420402","Shreyas Boosnoor"),("166322228","Ishpreet Sood"),("166262056","Shobit Gupta"),
-        ("166483631","Yash Wani"),("166322218","Ashish Ranjan"),("95472647","Bhanu Enamala")]
+# Team list for the member dropdown. Pulled LIVE from HubSpot owners rather than hardcoded —
+# the old fixed list silently omitted Yuktha and Lamiya for their whole first week, so every
+# per-member view was blind to them. Anyone added in HubSpot now shows up automatically.
+# PREFERRED fixes the order for people we already know; newcomers append alphabetically, so
+# the dropdown never reshuffles under someone mid-session.
+PREFERRED = ["166420402", "166322228", "166262056", "166483631", "96574824", "96573782",
+             "166322218", "95472647"]
+_s, _ow = call("/crm/v3/owners?limit=200")
+_all = [(o["id"], f'{o.get("firstName","")} {o.get("lastName","")}'.strip())
+        for o in (_ow.get("results") or []) if o.get("id")]
+_byid = dict(_all)
+CORE = [(i, _byid[i]) for i in PREFERRED if i in _byid]
+CORE += sorted([(i, n) for i, n in _all if i not in PREFERRED], key=lambda x: x[1])
+print(f"dashboard members: {len(CORE)} -> {[n for _, n in CORE]}", file=sys.stderr)
 out = {"generated": datetime.now(IST).strftime("%Y-%m-%d %H:%M IST"), "core": CORE, "rows": rows}
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard_data.json"), "w") as f:
     json.dump(out, f, separators=(",", ":"))
