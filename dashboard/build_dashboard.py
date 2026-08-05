@@ -81,6 +81,9 @@ METRICS = {
     "cn":   {"Commercial Negotiation"},
     # --- lead closer ---  ("ev" is shown on this panel too, deliberately: both pods do it)
     "neg":  {"Dead/Negotiation/Pricing", "Dead/Negotiation/Contractual", "Deal Contract Signed"},
+    # Contract signings on their own. `neg` counts negotiation CALLS, which includes the two
+    # ways a negotiation dies — so it can never answer "how many did we sign".
+    "dcs":  {"Deal Contract Signed"},
     "won_d": {"Closed/Won"},
 }
 # `Call Attempted` was retired on 2026-08-05 and its deals moved to `No Pickup`, but it

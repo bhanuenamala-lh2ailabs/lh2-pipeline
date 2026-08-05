@@ -66,3 +66,11 @@ Thumbs.db
 
 # Local notes containing a GitHub token — NEVER commit
 git.md
+
+# Gmail OAuth. CI writes these into dashboard/ at runtime from repo secrets and shreds them
+# after; they must never be committed from a local run either.
+gmail_token.json
+gmail_oauth_client.json
+client_secret_*.json
+dashboard/dashboard_data.json
+dashboard/daily_report.html

@@ -150,7 +150,7 @@
 
 <main>
   <div class="head">
-    <div><h1 id="dttl">GTM Analysts Summary</h1><p id="subttl">Cold-call activity</p></div>
+    <div><h1 id="dttl">GTM Analysts Summary</h1><p id="subttl"></p></div>
     <div class="pill"><span class="dot"></span> Live from HubSpot · <span id="freshness"></span></div>
   </div>
 
@@ -204,7 +204,7 @@ const A={blue:{c:'#1447e6',bg:'#eef2ff'},sky:{c:'#3d96ff',bg:'#eaf3ff'},amber:{c
 // entered — not how many sit there now. `f` indexes the per-deal event lists the builder
 // emits. Scraped and Campaign are combined; there is no pipeline scope any more.
 const DASHBOARDS={
-  gtm:{name:'GTM Analyst',sub:'Introductory calls → first VC · both pipelines',def:'166420402',
+  gtm:{name:'GTM Analyst',sub:'',def:'166420402',
     inputs:[
       {lbl:'Cold-Call Leads Assigned',f:'asg',icon:'📥',...A.blue},
       {lbl:'Calls Attempted',f:'att',icon:'📞',...A.sky},
@@ -218,7 +218,7 @@ const DASHBOARDS={
     targets:{per:'daily',team:2,items:[
       {f:'conn',lbl:'Connected calls',v:40},
       {f:'gm',  lbl:'VCs set up',     v:5}]}},
-  lead:{name:'Lead Manager',sub:'VC → negotiation stage · both pipelines',def:'166322228',
+  lead:{name:'Lead Manager',sub:'',def:'166322228',
     inputs:[
       {lbl:'GMeets Assigned',f:'gma',icon:'📅',...A.blue},
       {lbl:'VCs Attended',f:'vc',icon:'🎥',...A.sky},
@@ -232,7 +232,7 @@ const DASHBOARDS={
       {f:'vc',lbl:'VCs attended',          v:40},
       {f:'ss',lbl:'Scripts shared',        v:25},
       {f:'rr',lbl:'Script outputs received',v:15}]}},
-  closer:{name:'Lead Closer',sub:'Negotiation → deal closure · both pipelines',def:'166262056',
+  closer:{name:'Lead Closer',sub:'',def:'166262056',
     inputs:[
       {lbl:'Script Evaluations Conducted',f:'ev',icon:'🔍',...A.blue},
       {lbl:'Deal Negotiation Calls Conducted',f:'neg',icon:'💬',...A.amber}],
@@ -243,7 +243,7 @@ const DASHBOARDS={
     // target for the week, so the same table is shown here rather than a second set of
     // numbers that could drift from it.
     sprint:true},
-  ceo:{name:'Executive Summary',sub:'Portfolio value & won economics · both pipelines',def:'all',ceo:true},
+  ceo:{name:'Executive Summary',sub:'',def:'all',ceo:true},
 };
 
 // dates on which this deal satisfied metric `f`. Always an array, so KPI and chart code
@@ -352,10 +352,10 @@ function renderAnalyst(){
     const snap=!!m.snap;
     const v=snap?rows.filter(r=>(_mm==='all'||r.o===_mm)&&r[m.snap]).length
                 :rows.reduce((a,r)=>a+events(r,m.f,_mm).filter(v=>inRange(v,from,to)).length,0);
-    const sub=snap?'pending — not date-filtered':'times reached, in range';
+    const sub=snap?'pending — not date-filtered':'';
     return `<div class="kpi" style="--accent:${m.c};--accentbg:${m.bg}">
       <div class="ic">${m.icon}</div><div class="lbl">${m.lbl}</div>
-      <div class="val">${v.toLocaleString()}</div><div class="sub">${sub}</div></div>`;
+      <div class="val">${v.toLocaleString()}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
   };
   const grp=(t,list)=>(list&&list.length)?`<div class="mgrp"><div class="mgrplbl">${t}</div>
       <div class="kpis">${list.map(card).join('')}</div></div>`:'';
@@ -460,7 +460,9 @@ function switchDash(d){
   F.dash=d;
   document.querySelectorAll('#dashnav a[data-d]').forEach(a=>a.classList.toggle('on',a.dataset.d===d));
   document.getElementById('dttl').textContent=DASHBOARDS[d].name;
-  document.getElementById('subttl').textContent=DASHBOARDS[d].sub;
+  const _st=document.getElementById('subttl');
+  _st.textContent=DASHBOARDS[d].sub||'';
+  _st.style.display=DASHBOARDS[d].sub?'block':'none';
   const sel=document.getElementById('member');
   if([...sel.options].some(o=>o.value===DASHBOARDS[d].def))sel.value=DASHBOARDS[d].def;
   render();
