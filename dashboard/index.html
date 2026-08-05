@@ -170,6 +170,11 @@
 
   <div id="ceoView" style="display:none">
     <div class="panel" style="margin-bottom:16px">
+      <div class="phead"><div><h3>August Sprint Campaign</h3>
+        <div class="psub">Weekly LoC targets vs procured · Mon–Fri sprint weeks</div></div></div>
+      <div style="overflow-x:auto"><div id="sprint"></div></div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
       <div class="cardhead">
         <div><h3>Portfolio Value</h3><div class="psub" style="font-size:11.5px;color:var(--mut2)">Cumulative code assets · scale = LoC</div></div>
         <div class="ctl"><label>Set</label><select id="pvmode"><option value="pipe">In Pipeline</option><option value="won">Won</option></select></div>
@@ -254,6 +259,52 @@ function events(r,f,mem){
   return ev.filter(e=>mem==='all'||e[1]===mem).map(e=>e[0]);
 }
 const CEO_TARGET_LOC=40000000;
+
+// August sprint. Targets are in millions of LoC and are PER WEEK, not cumulative.
+// `from`/`to` are the Mon–Fri sprint windows exactly as written on the campaign sheet.
+const SPRINT=[
+  {n:1,label:'27 Jul – 31 Jul',from:'2026-07-27',to:'2026-07-31',target:40},
+  {n:2,label:'3 Aug – 7 Aug',  from:'2026-08-03',to:'2026-08-07',target:60},
+  {n:3,label:'10 Aug – 14 Aug',from:'2026-08-10',to:'2026-08-14',target:80},
+  {n:4,label:'17 Aug – 21 Aug',from:'2026-08-17',to:'2026-08-21',target:100},
+  {n:5,label:'23 Aug – 28 Aug',from:'2026-08-23',to:'2026-08-28',target:120},
+];
+// Which field counts as "procured". `won_any` = hit Closed/Won by ANY route, human or
+// API — the asset is ours regardless of who moved the stage. Change this key to re-base.
+const SPRINT_BASIS='won_any';
+
+function renderSprint(rows){
+  const today=iso(new Date());
+  const body=SPRINT.map(w=>{
+    const loc=rows.reduce((a,r)=>a+((r[SPRINT_BASIS]||[])
+        .some(x=>x>=w.from&&x<=w.to)?(r.loc||0):0),0)/1e6;
+    const pct=w.target?loc/w.target*100:0;
+    const future=w.from>today;
+    const live=w.from<=today&&today<=w.to;
+    const col=pct>=100?'var(--green)':pct>=60?'var(--amber)':'var(--blue)';
+    return `<tr${live?' style="background:#eef2ff"':''}>
+      <td style="text-align:center">${w.n}</td>
+      <td class="nm">${w.label}${live?' <span class="pill p">this week</span>':''}</td>
+      <td style="text-align:right">${w.target}</td>
+      <td style="text-align:right">${future?'—':loc.toFixed(2)}</td>
+      <td style="min-width:170px">${future?'<span style="color:var(--mut2)">not started</span>':
+        `<div style="display:flex;align-items:center;gap:9px">
+           <div class="tbar" style="flex:1;height:12px"><div class="tf" style="width:${Math.min(100,pct)}%;background:${col}"></div></div>
+           <b style="color:${col};min-width:52px;text-align:right">${pct.toFixed(2)}%</b></div>`}</td>
+    </tr>`;}).join('');
+  const done=SPRINT.filter(w=>w.from<=today);
+  const gotT=done.reduce((a,w)=>a+rows.reduce((b,r)=>b+((r[SPRINT_BASIS]||[])
+        .some(x=>x>=w.from&&x<=w.to)?(r.loc||0):0),0),0)/1e6;
+  const wantT=done.reduce((a,w)=>a+w.target,0);
+  document.getElementById('sprint').innerHTML=`<table class="hdt">
+    <thead><tr><th style="width:44px">S.No.</th><th>Week</th><th style="text-align:right">Target LoC (Mn)</th>
+      <th style="text-align:right">Actual LoC procured</th><th>Achievement</th></tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr style="background:#f7f9fd;font-weight:700">
+      <td></td><td class="nm">To date</td><td style="text-align:right">${wantT}</td>
+      <td style="text-align:right">${gotT.toFixed(2)}</td>
+      <td><b>${wantT?(gotT/wantT*100).toFixed(2):0}%</b></td></tr></tfoot></table>`;
+}
 
 function iso(d){return d.toISOString().slice(0,10);}
 function weekKey(s){const d=new Date(s+'T00:00:00');const wd=(d.getDay()+6)%7;d.setDate(d.getDate()-wd);return iso(d);}
@@ -402,6 +453,7 @@ function switchDash(d){
 /* ---- CEO ---- */
 function miniStat(l,i,v){return `<div class="ministat"><div class="i">${i}</div><div class="l">${l}</div><div class="v">${v}</div></div>`;}
 function renderCEO(){
+  renderSprint(F.data.rows);
   const _m=document.getElementById('member').value;   // Executive view spans ALL tags (member filter only)
   const rows=F.data.rows.filter(r=>(_m==='all'||r.o===_m));
   const mode=(document.getElementById('pvmode')||{}).value||'pipe';

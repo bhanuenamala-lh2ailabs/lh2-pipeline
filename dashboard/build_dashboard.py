@@ -186,7 +186,8 @@ for r in deals:
          # calling stages twice (No Pickup Monday, Not Interested Tuesday) and both are real
          # dials. Keeping only the first would make the whole callback loop invisible.
          "m": {k: [] for k in METRICS},
-         "asg": []}                       # IST days this deal was assigned to its owner
+         "asg": [],                      # IST days this deal was assigned to its owner
+         "won_any": []}                  # IST days it hit Closed/Won, ANY source (sprint LoC)
     funnel.append((len(rows), r["id"]))   # every deal needs history now, incl. Cold Call
     if d["r"] >= 5 or d["won"]:
         hotnote.append((len(rows), r["id"]))
@@ -204,10 +205,18 @@ for i, (idx, did) in enumerate(funnel):
     # bulk API writes, including our own migration of 245 deals. Counting those would have
     # rendered that migration as the biggest calling day the company has ever had.
     for e in hist.get("dealstage", []):
-        if e.get("sourceType") != "CRM_UI" or not e.get("timestamp"):
+        if not e.get("timestamp"):
             continue
         lab = STAGE_LABEL.get(e.get("value"))
         if not lab:                     # a stage that has since been deleted — skip, don't guess
+            continue
+        # Procurement is a fact about the ASSET, not about who moved the deal. A codebase we
+        # won is ours whether a person clicked the stage or a script set it, so the sprint
+        # LoC total ignores sourceType. Activity metrics below do not — see the filter.
+        if lab == "Closed/Won":
+            wd = ist_day(e["timestamp"])
+            if wd not in d["won_any"]: d["won_any"].append(wd)
+        if e.get("sourceType") != "CRM_UI":
             continue
         day = ist_day(e["timestamp"])
         who = actor_owner(e.get("updatedByUserId"))
