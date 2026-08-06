@@ -71,7 +71,11 @@ jobs:
 
       - name: Upload the rendered report
         if: always()
-        uses: actions/upload-artifact@v4
+        # v5: v4 is on the Node-20 deprecation list and is being force-run on Node 24, which
+        # is what broke deploy-pages@v4 on the dashboard workflow today. This step runs
+        # `if: always()` at the very end, so a failure here would mark the run red AFTER the
+        # mail had already gone — misleading rather than harmful, but not worth the risk.
+        uses: actions/upload-artifact@v5
         with:
           name: daily-report-html
           path: dashboard/daily_report.html
