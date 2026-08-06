@@ -9,15 +9,21 @@ name: Deploy Sales Dashboard
 on:
   workflow_dispatch: {}          # run manually anytime
   schedule:
-    # GitHub cron is UTC; IST is UTC+5:30. Refresh through the working day, then a final
-    # run at day close.
-    - cron: "30 4,6,8,10,12 * * *"   # 10:00, 12:00, 14:00, 16:00, 18:00 IST
-    - cron: "0 13 * * *"             # 18:30 IST — day close
-    # Backstop. GitHub's scheduled runs are best-effort and are regularly delayed, and
-    # occasionally dropped outright, so an exact 18:30 cannot be guaranteed by cron alone.
-    # The build is idempotent — it rebuilds from live HubSpot every time — so a second run
-    # simply republishes the same day with fresher data.
-    - cron: "20 13 * * *"            # 18:50 IST — covers a slipped or dropped day-close run
+    # GitHub cron is UTC; IST is UTC+5:30.
+    #
+    # DENSITY IS DELIBERATE. GitHub runs `schedule` on a best-effort basis and this repo
+    # loses most of its slots: measured 50 delivered runs against ~336 attempts over two
+    # weeks on an hourly cron — about 15%. A tidy every-2-hours schedule (7 slots) was tried
+    # on 5 Aug and delivered ZERO runs in its first 16 hours, because cutting the number of
+    # attempts cuts deliveries by the same proportion. The answer to a lossy scheduler is
+    # more attempts, not fewer.
+    #
+    # Over-scheduling is safe here: the build is idempotent (it rebuilds from live HubSpot
+    # on every run, so a repeat simply republishes fresher data) and Actions minutes are
+    # free on a public repo. `concurrency` below cancels an older run if two overlap.
+    - cron: "*/30 4-13 * * *"        # every 30 min, 09:30 - 19:00 IST
+    # Day close is the snapshot people actually read, so stack extra attempts around 18:30.
+    - cron: "10,20,40,50 13 * * *"   # 18:40, 18:50, 19:10, 19:20 IST
 
 permissions:
   contents: read
