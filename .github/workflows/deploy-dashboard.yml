@@ -63,10 +63,14 @@ jobs:
           cp dashboard/index.html _site/index.html
           cp dashboard/dashboard_data.json _site/dashboard_data.json
 
-      - uses: actions/upload-pages-artifact@v3
+      # v5, not v4/v3. On 6 Aug the deploy step started failing with "Timeout reached,
+      # aborting!" while every earlier step passed — GitHub is force-running Node-20 actions
+      # on Node 24, and the v4 deploy action stopped completing its status poll under that.
+      # Nothing in this repo changed to cause it; the runner did.
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
