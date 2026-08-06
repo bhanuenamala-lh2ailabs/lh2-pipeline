@@ -21,9 +21,14 @@ on:
     # Over-scheduling is safe here: the build is idempotent (it rebuilds from live HubSpot
     # on every run, so a repeat simply republishes fresher data) and Actions minutes are
     # free on a public repo. `concurrency` below cancels an older run if two overlap.
-    - cron: "*/30 4-13 * * *"        # every 30 min, 09:30 - 19:00 IST
-    # Day close is the snapshot people actually read, so stack extra attempts around 18:30.
-    - cron: "10,20,40,50 13 * * *"   # 18:40, 18:50, 19:10, 19:20 IST
+    # MINUTES ARE DELIBERATELY ODD. GitHub documents the start of every hour as a high-load
+    # window, and `schedule` is dropped rather than queued under load. The original cron was
+    # "0 * * * *" — the single worst minute available — which is the likeliest reason only
+    # ~15% of its runs ever landed. :00, :15, :30 and :45 are all crowded, so every entry
+    # below sits on a minute almost nobody else picks.
+    - cron: "7,37 4-13 * * *"          # every 30 min at :07/:37, 09:37 - 19:07 IST
+    # Day close is the snapshot people actually read, so stack extra attempts after 18:30.
+    - cron: "3,13,23,43,53 13 * * *"   # 18:33, 18:43, 18:53, 19:13, 19:23 IST
 
 permissions:
   contents: read
