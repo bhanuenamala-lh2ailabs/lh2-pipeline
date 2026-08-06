@@ -145,7 +145,7 @@ def bucket_ls(ls):
     return None
 
 PROPS = ["hubspot_owner_id","scraped_type","lead_source","pipeline","dealstage","createdate","dealname",
-         "metadata_link","deal_value_range","loc","pr_count","num_projects","num_repos","cost"]
+         "metadata_link","deal_value_range","loc","pr_count","num_projects","num_repos","amount"]
 
 def scan():
     out, after = [], None
@@ -183,7 +183,11 @@ for r in deals:
          "nm":p.get("dealname") or "", "ml":p.get("metadata_link") or "",
          "dvr":p.get("deal_value_range") or "",
          "loc":num(p,"loc"), "pr":num(p,"pr_count"), "pj":num(p,"num_projects"),
-         "rp":num(p,"num_repos"), "cost":num(p,"cost"),
+         # Money comes from `amount`, HubSpot's standard deal field — NOT the custom `cost`
+         # ("Deal Cost (USD)"). Both were being filled by hand and they disagree on 3 of the
+         # 5 deals carrying both, so the dashboard has to name one and stay with it.
+         # Keyed `amt`, not `cost`, so nothing downstream can quietly read the wrong one.
+         "rp":num(p,"num_repos"), "amt":num(p,"amount"),
          # per-metric list of IST days on which this deal ENTERED a qualifying stage.
          # A list, not a single date: under the callback loop a deal legitimately hits the
          # calling stages twice (No Pickup Monday, Not Interested Tuesday) and both are real

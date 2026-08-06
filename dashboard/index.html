@@ -485,10 +485,10 @@ function renderCEO(){
   else{const B=[['<50k',0,5e4],['50–100k',5e4,1e5],['100–250k',1e5,2.5e5],['250–500k',2.5e5,5e5],['500k–1M',5e5,1e6],['1M+',1e6,Infinity]];
     const c=B.map(b=>wl.filter(r=>r.loc>=b[1]&&r.loc<b[2]).length),mx=Math.max(...c,1);
     lb.innerHTML=B.map((b,i)=>`<div class="bkt"><span class="bl">${b[0]}</span><span class="bb"><span class="bf" style="width:${c[i]/mx*100}%"></span></span><span class="bn">${c[i]}</span></div>`).join('');}
-  const won=rows.filter(r=>r.won),tC=won.reduce((a,r)=>a+(r.cost||0),0),tL=won.reduce((a,r)=>a+(r.loc||0),0),cph=tL?tC/tL*1e6:0;
+  const won=rows.filter(r=>r.won),tC=won.reduce((a,r)=>a+(r.amt||0),0),tL=won.reduce((a,r)=>a+(r.loc||0),0),cph=tL?tC/tL*1e6:0;
   document.getElementById('wonstats').innerHTML=[['Deals Won','🏆',won.length],['Total Cost','💰',tC?'$'+fmtBig(tC):'—'],
     ['Cost / 1M LoC','⚖️',cph?'$'+fmtBig(cph):'—']].map(a=>miniStat(...a)).join('');
-  const pts=won.filter(r=>r.cost>0&&r.loc>0).map(r=>({x:r.cost,y:r.cost/(r.loc/1e6)})),sc=document.getElementById('scatter');
+  const pts=won.filter(r=>r.amt>0&&r.loc>0).map(r=>({x:r.amt,y:r.amt/(r.loc/1e6)})),sc=document.getElementById('scatter');
   if(!pts.length)sc.innerHTML='<div class="awaiting">Awaiting won deals with cost + LoC.<br>Each plots as cost/deal (x) vs cost per 1M LoC (y).</div>';
   else{const W=540,H=230,pad={l:52,r:14,t:12,b:32},iw=W-pad.l-pad.r,ih=H-pad.t-pad.b;
     const mx=Math.max(...pts.map(p=>p.x))*1.1,my=Math.max(...pts.map(p=>p.y))*1.1;
@@ -518,7 +518,7 @@ function renderCEO(){
       return `<tr class="${won?'won':''}"><td class="nm">${esc(r.nm)||'—'}</td>`+
       `<td><span class="pill ${won?'w':(dead?'d':'p')}">${won?'Won':(dead?'Dead':(STG[r.r]||'—'))}</span></td>`+
       `<td>${r.pj||'—'}</td><td>${r.loc?fmtBig(r.loc):'—'}</td><td>${r.pr?fmtBig(r.pr):'—'}</td>`+
-      `<td>${ratio||'—'}</td><td>${r.cost?'$'+fmtBig(r.cost):'—'}</td>`+
+      `<td>${ratio||'—'}</td><td>${r.amt?'$'+fmtBig(r.amt):'—'}</td>`+
       `<td class="vr">${esc(r.dvr)||'—'}</td>`+
       `<td>${r.ml?`<a href="${esc(r.ml)}" target="_blank" rel="noopener">open ↗</a>`:'—'}</td>`+
       `<td class="note" title="${esc(r.note)}">${esc(r.note)||'—'}</td></tr>`;}).join('')+'</tbody></table>';
